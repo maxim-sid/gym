@@ -152,13 +152,15 @@ test('setDelta: every rule, including the joint caps', () => {
 
 /* ---------- finishSession ---------- */
 
-test('finishSession rp: base before dropping, clamp 1..12, next week reset, unchecked dropped, done/date/advance', () => {
+// Changed deliberately in 1.6: typed-but-unticked sets are KEPT (F07; the Finish sheet logs or skips them first),
+// only empty unticked sets are dropped.
+test('finishSession rp: base before dropping, clamp 1..12, next week reset, EMPTY unchecked dropped, done/date/advance', () => {
   const m = rpMeso();
   m.days[0].exercises.push({ exId: 'x', plan: [12], reps: null, type: 'accessory' }, { exId: 'y', plan: [1], reps: null, type: 'accessory' });
   const s = C.session(m, 0, 0, true);
   s.slots[0].sets = [set(60, 8), set(60, 8), set('', '', false)];     // base 3, one unchecked
   s.slots[0].fb = { sore: 0, pump: 0, work: 0 };                     // +2 → 5
-  s.slots[1].sets = [set(10, 12), { w: '10', r: '9', done: false }]; // typed but unticked: dropped (F07)
+  s.slots[1].sets = [set(10, 12), { w: '10', r: '9', done: false }]; // typed but unticked: kept since 1.6 (was dropped)
   s.slots[1].fb = { sore: 3 };                                       // -1 → 1
   s.slots[2].sets = Array.from({ length: 12 }, () => set(5, 10));
   s.slots[2].fb = { pump: 2 };                                       // 12 + 1 → clamped 12
@@ -169,8 +171,8 @@ test('finishSession rp: base before dropping, clamp 1..12, next week reset, unch
 
   const r = C.finishSession(m, 0, 0, s, 1234);
 
-  assert.deepEqual(s.slots.map(sl => sl.sets.length), [2, 1, 12, 1]);
-  assert.ok(s.slots.every(sl => sl.sets.every(x => x.done)));
+  assert.deepEqual(s.slots.map(sl => sl.sets.length), [2, 2, 12, 1]);
+  assert.deepEqual(s.slots[1].sets[1], { w: '10', r: '9', done: false });
   assert.deepEqual(m.days[0].exercises.map(e => e.plan), [[3, 5], [2, 1], [12, 12], [1, 1]]);
   assert.deepEqual(r.changes, [{ exId: 'a', from: 3, to: 5 }, { exId: 'b', from: 2, to: 1 }]);
   assert.deepEqual(next.slots[0].sets, C.blankSets(5));

@@ -227,10 +227,17 @@
     m.complete = true;
   }
 
+  const typedSet = x => String(x.w ?? '').trim() !== '' || String(x.r ?? '').trim() !== '';
+
   // The data part of "Finish workout". changes: [{exId, from, to}] for next week's set counts (rp only).
+  // Only EMPTY unticked sets are dropped (after counting base); skipped sets keep their values (F07). The date is the
+  // first tick, so a late Finish doesn't move it (F12) — computed only here, never on edit.
   function finishSession(m, w, d, s, now) {
     const base = s.slots.map(sl => sl.sets.length);
-    s.slots.forEach(sl => { sl.sets = doneSets(sl); });
+    s.slots.forEach(sl => {
+      sl.sets = sl.sets.filter(x => x.done || x.skip || typedSet(x));
+      delete sl.bump;
+    });
     const changes = [];
     if (!isFixed(m) && !isDeload(m, w) && w + 1 < m.weeks) {
       m.days[d].exercises.forEach((slot, i) => {
@@ -242,9 +249,58 @@
       });
     }
     s.done = true;
-    s.date = now;
+    const ticks = s.slots.flatMap(sl => sl.sets.filter(x => x.done && typeof x.t === 'number').map(x => x.t));
+    s.date = ticks.length ? Math.min(...ticks) : now;
     advance(m);
     return { changes };
+  }
+
+  // What the Finish sheet shows. typed: unticked, unskipped sets with something typed ({i, j}).
+  function finishReview(s) {
+    const typed = [];
+    let sets = 0, empty = 0, exercises = 0;
+    s.slots.forEach((sl, i) => {
+      if (sl.sets.some(x => x.done)) exercises++;
+      sl.sets.forEach((x, j) => {
+        if (x.done) sets++;
+        else if (x.skip) return;
+        else if (typedSet(x)) typed.push({ i, j });
+        else empty++;
+      });
+    });
+    return { exercises, of: s.slots.length, sets, typed, empty, nothing: !sets && !typed.length };
+  }
+
+  // "Log them" / "Skip them" for the typed sets. accept(i, j) → acceptSet result. All are checked first, so
+  // an invalid one changes nothing. → {ok: true} | {error, i, j}
+  function applyTyped(s, list, accept, mode, now) {
+    if (mode === 'log') {
+      const res = list.map(({ i, j }) => ({ i, j, r: accept(i, j) }));
+      const bad = res.find(x => x.r.error);
+      if (bad) return { error: bad.r.error, i: bad.i, j: bad.j };
+      res.forEach(({ i, j, r }) => tickSet(s.slots[i].sets[j], r, now));
+    } else {
+      list.forEach(({ i, j }) => { s.slots[i].sets[j].skip = true; });
+    }
+    return { ok: true };
+  }
+
+  // Undo for Finish: everything finishSession (and the sheet's log/skip) can change for week w, day d.
+  const clone = x => (x === undefined ? undefined : JSON.parse(JSON.stringify(x)));
+  function finishSnapshot(m, w, d) {
+    return {
+      w, d, pos: clone(m.pos), complete: m.complete,
+      cur: clone(m.log[`${w}-${d}`]), next: clone(m.log[`${w + 1}-${d}`]),
+      plans: m.days[d].exercises.map(e => clone(e.plan)),
+    };
+  }
+  function restoreFinish(m, snap) {
+    const put = (k, v) => { if (v === undefined) delete m.log[k]; else m.log[k] = clone(v); };
+    put(`${snap.w}-${snap.d}`, snap.cur);
+    put(`${snap.w + 1}-${snap.d}`, snap.next);
+    m.days[snap.d].exercises.forEach((e, i) => { if (snap.plans[i]) e.plan = clone(snap.plans[i]); });
+    m.pos = clone(snap.pos);
+    m.complete = snap.complete;
   }
 
   // ✓ on a set: typed value, else the suggestion (prefill), else the rules below. Never invents a 0.
@@ -262,6 +318,7 @@
   // ✓: marks a set done with the accepted values and the tick time. A done set is left alone (no accidental untick).
   function tickSet(st, accepted, now) {
     if (st.done) return false;
+    delete st.skip;
     st.w = accepted.w;
     st.r = accepted.r;
     st.done = true;
@@ -474,6 +531,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, advance,
-    finishSession, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet };
+    finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

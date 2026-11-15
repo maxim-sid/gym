@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof tidySlots !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof restoreFinish !== 'function') {
   document.getElementById('main').textContent = 'Update in progress — please reload.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -46,7 +46,7 @@ const boot = loadState(store, Date.now());
 let mode = boot.mode;
 const readOnly = mode === 'readOnly';
 let S = boot.state;
-const ui = { tab: 'today', at: null, draft: null, progEx: null, edit: null }; // edit: session key while editing a finished workout (not persisted)
+const ui = { tab: 'today', at: null, draft: null, progEx: null, edit: null, sheet: null }; // edit: session key while editing a finished workout (not persisted)
 
 function save() {
   if (mode !== 'ok') return;
@@ -195,13 +195,13 @@ function viewToday() {
       <div class="setgrid"><span></span><span class="h">${ex?.bw ? '+' : ''}${unit()}</span><span class="h">${isTimed(ex, meta) ? 'Sec' : 'Reps'}</span><span></span>`;
     sl.sets.forEach((st, j) => {
       const { w: pw, r: pr } = suggest(j);
-      const dc = st.done ? 'd' : '';
+      const dc = st.done ? 'd' : st.skip ? 'sk' : '';
       const roA = ro ? 'readonly tabindex="-1"' : '';
       h += (ro ? `<span class="n">${j + 1}</span>`
         : `<button class="n" data-act="setNum" data-i="${i}" data-j="${j}" aria-label="Set ${j + 1} options">${j + 1}</button>`)
         + `<input class="${dc}" inputmode="decimal" data-i="${i}" data-j="${j}" data-f="w" value="${esc(st.w)}" placeholder="${ro ? '' : pw}" ${roA} aria-label="Set ${j + 1} weight">
         <input class="${dc}" inputmode="numeric" data-i="${i}" data-j="${j}" data-f="r" value="${esc(st.r)}" placeholder="${ro ? '' : pr}" ${roA} aria-label="Set ${j + 1} reps">`
-        + (ro ? `<span class="chk static ${st.done ? 'on' : ''}" aria-label="${st.done ? 'Done' : 'Not done'}">${st.done ? '✓' : ''}</span>`
+        + (ro ? `<span class="chk static ${st.done ? 'on' : st.skip ? 'sk' : ''}" aria-label="${st.done ? 'Done' : st.skip ? 'Skipped' : 'Not done'}">${st.done ? '✓' : st.skip ? 'skipped' : ''}</span>`
           : `<button class="chk ${st.done ? 'on' : ''}" data-act="set" data-i="${i}" data-j="${j}" aria-label="Done">✓</button>`);
     });
     h += '</div>';
@@ -393,12 +393,47 @@ function viewRecovery() {
 
 const VIEWS = { today: viewToday, plan: viewPlan, progress: viewProgress, exercises: viewExercises, settings: viewSettings };
 
+/* ---------- bottom sheet ---------- */
+// One sheet at a time, rendered from ui.sheet = {kind}. Built from the current data on every render.
+
+function sheetFinish() {
+  const m = activeMeso();
+  const { w, d } = ui.at;
+  const s = session(m, w, d) ?? blankSession(m, w, d);
+  const rv = finishReview(s);
+  const btn = (mode, label, primary) => `<button class="btn block ${primary ? 'primary' : ''}" data-act="finishGo" data-mode="${mode}">${label}</button>`;
+  let h = `<h2>Finish ${esc(m.days[d].name)}?</h2>
+    <p class="meta">${rv.exercises} of ${rv.of} exercises · ${rv.sets} set${rv.sets === 1 ? '' : 's'}</p>`;
+  if (rv.nothing) {
+    h += `<p class="warn">Nothing logged yet.</p>${btn('plain', 'Finish anyway')}`;
+  } else if (rv.typed.length) {
+    const n = rv.typed.length;
+    h += `<p class="warn">⚠ ${n} set${n === 1 ? ' has' : 's have'} numbers but no ✓<br>
+      <span class="muted">${rv.typed.map(({ i, j }) => `${esc(exById(s.slots[i].exId)?.name)} set ${j + 1}`).join(' · ')}</span></p>
+      ${btn('log', 'Log them and finish', true)}${btn('skip', 'Skip them and finish')}`;
+  } else {
+    h += btn('plain', 'Finish', true);
+  }
+  if (rv.empty && !rv.nothing) h += `<p class="hint">${rv.empty} empty set${rv.empty === 1 ? '' : 's'} will be removed.</p>`;
+  return h + '<button class="btn block" data-act="sheetCancel">Keep training</button>';
+}
+
+const SHEETS = { finish: sheetFinish };
+
+function renderSheet() {
+  const el = $('#sheet');
+  el.hidden = !ui.sheet;
+  el.innerHTML = ui.sheet ? `<div class="sheet-bg" data-act="sheetCancel"></div>
+    <div class="sheet" role="dialog" aria-modal="true">${SHEETS[ui.sheet.kind]()}</div>` : '';
+}
+
 function render() {
   const blocked = mode === 'recovery';
   $('#tabs').style.display = blocked ? 'none' : '';
   if (blocked) { $('#main').innerHTML = viewRecovery(); return; }
   $('#main').innerHTML = (readOnly ? `<div class="banner ro">Data was saved by a newer version of Liftbook. Reload to update. Changes won’t be saved.</div>` : '')
     + VIEWS[ui.tab]();
+  renderSheet();
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === ui.tab));
 }
 
@@ -528,8 +563,9 @@ function draftFields(D) {
 const newMeso = fields => ({ id: uid(), ...fields, log: {}, pos: { w: 0, d: 0 }, complete: false, created: Date.now() });
 
 const A = {
-  tab: el => { ui.tab = el.dataset.tab; ui.edit = null; render(); window.scrollTo(0, 0); },
-  goto: el => { ui.at = { meso: S.activeId, w: +el.dataset.w, d: +el.dataset.d }; ui.edit = null; render(); },
+  tab: el => { ui.tab = el.dataset.tab; ui.edit = null; ui.sheet = null; render(); window.scrollTo(0, 0); },
+  goto: el => { ui.at = { meso: S.activeId, w: +el.dataset.w, d: +el.dataset.d }; ui.edit = null; ui.sheet = null; render(); },
+  sheetCancel: () => { ui.sheet = null; render(); },
   toastAct: () => {
     const act = toastAction;
     toastAction = null;
@@ -608,19 +644,43 @@ const A = {
   // Feedback only changes sl.fb; the plan changes only inside finishSession (never re-run when editing).
   fb: el => { const c = curW(); if (!c) return; c.s.slots[+el.dataset.i].fb[el.dataset.k] = +el.dataset.v; save(); render(); },
 
+  // Finish opens the sheet; finishGo does it. Typed-but-unticked sets are logged or skipped, never dropped (F07).
   finish: () => {
     const c0 = curW();
     if (!c0 || c0.s.done) return; // Finish runs once; editing a finished workout never re-runs it
+    ui.sheet = { kind: 'finish' };
+    render();
+  },
+  finishGo: el => {
+    ui.sheet = null;
+    const c0 = curW();
+    if (!c0 || c0.s.done) { render(); return; }
     const { m, s, w, d } = c0;
-    if (s.slots.some(sl => sl.sets.some(x => !x.done)) &&
-      !confirm('Some sets aren’t checked off. Finish anyway? Unchecked sets will be dropped.')) return;
+    const snap = finishSnapshot(m, w, d);
+    const typed = finishReview(s).typed;
+    if (el.dataset.mode !== 'plain' && typed.length) {
+      const accept = (i, j) => { const x = slotCtx(m, w, d, s, i); return acceptSet(s.slots[i].sets[j], x.suggest(j), x.ex); };
+      const res = applyTyped(s, typed, accept, el.dataset.mode, Date.now());
+      if (res.error) { // nothing changed: show the set that needs a value
+        render();
+        const inp = $(`input[data-i="${res.i}"][data-j="${res.j}"][data-f="${res.error === 'weight' ? 'w' : 'r'}"]`);
+        inp?.classList.add('bad');
+        inp?.scrollIntoView({ block: 'center' });
+        inp?.focus();
+        toast(res.error === 'weight' ? 'Enter the weight (or mark it BW in Exercises)' : 'Enter reps (more than 0)');
+        return;
+      }
+    }
     const changes = finishSession(m, w, d, s, Date.now()).changes.map(c => `${exById(c.exId)?.name} ${c.from}→${c.to}`);
     ui.at = null;
     stopRest();
     save();
     render();
     window.scrollTo(0, 0);
-    toast(changes.length ? `Saved. Next week: ${changes.join(', ')}` : 'Workout saved 💪');
+    toast(changes.length ? `Saved. Next week: ${changes.join(', ')}` : 'Workout saved 💪', {
+      label: 'Undo',
+      act: () => { restoreFinish(m, snap); ui.at = { meso: m.id, w, d }; },
+    });
   },
 
   newMeso: el => {
