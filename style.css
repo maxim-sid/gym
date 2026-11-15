@@ -60,6 +60,7 @@ h2 { font-size: 17px; margin: 0; }
 .setgrid .n { color: var(--muted); font-weight: 600; text-align: center; }
 .setgrid input { text-align: center; padding: 10px 4px; font-variant-numeric: tabular-nums; }
 .setgrid input.d { background: rgba(56,217,122,.08); border-color: transparent; }
+.setgrid input.bad { border-color: var(--bad); box-shadow: 0 0 0 1px var(--bad); }
 .chk { height: 44px; border-radius: 10px; background: var(--card2); border: 1px solid var(--line); color: var(--muted); font-size: 18px; }
 .chk.on { background: var(--ok); border-color: var(--ok); color: #04130a; }
 .fb { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; }
@@ -68,6 +69,7 @@ h2 { font-size: 17px; margin: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { padding: 8px 12px; border-radius: 999px; background: var(--card2); border: 1px solid var(--line); font-size: 14px; }
 .chip.on { background: var(--acc); border-color: var(--acc); color: var(--on-acc); }
+.chip.tog { min-height: 44px; min-width: 52px; font-size: 13px; flex: none; }
 
 .tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
 .tags .tag { margin: 0; }

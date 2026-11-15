@@ -1,5 +1,5 @@
 // Bump CACHE when you change any file so phones pick up the new version.
-const CACHE = 'liftbook-v6';
+const CACHE = 'liftbook-v7';
 const FILES = ['./', 'index.html', 'style.css', 'data/plan.js', 'core.js', 'app.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

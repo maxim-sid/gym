@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof hasLogs !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function') {
   document.getElementById('main').textContent = 'Update in progress — please reload.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -64,15 +64,17 @@ const byName = (a, b) => a.name.localeCompare(b.name);
 const unit = () => S.settings.unit;
 const fmtDate = ts => new Date(ts).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 const fmtTime = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-const fmtSets = sets => sets.map(x => (+x.w ? `${+x.w}×${x.r}` : `${x.r} reps`)).join(', ');
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-function ensureExercise(name, muscle) {
+// Finds by name, or creates it with the flags given (bw/timed from plan.js). Never changes an existing exercise.
+function ensureExercise(name, muscle, { bw = false, timed = false } = {}) {
   let ex = S.exercises.find(e => e.name.toLowerCase() === name.toLowerCase());
-  if (!ex) { ex = { id: uid(), name, muscle }; S.exercises.push(ex); }
+  if (!ex) { ex = { id: uid(), name, muscle, bw: !!bw, timed: !!timed }; S.exercises.push(ex); }
   return ex;
 }
+// Timed: the exercise flag decides once set (it is seeded for every exercise); the plan slot is the fallback.
+const isTimed = (ex, meta) => ex?.timed ?? !!meta?.timed;
 
 const activeMeso = () => S.mesos.find(m => m.id === S.activeId);
 
@@ -159,14 +161,15 @@ function viewToday() {
     const weighted = prevDone.some(x => +x.w > 0);
     h += `<div class="card"><div class="exhead"><div><h2>${esc(ex?.name)}</h2>
       <div class="tags"><span class="tag">${esc(ex?.muscle)}</span>${meta.type === 'main' ? '<span class="tag main">Main</span>' : ''}
-      ${meta.reps ? `<span class="muted">${sl.sets.length} × ${repsTxt(meta.reps, meta.timed)}</span>` : ''}</div></div>
-      ${prev ? `<div class="prev">Last week<br>${fmtSets(prevDone)}</div>` : ''}</div>
+      ${meta.reps ? `<span class="muted">${sl.sets.length} × ${repsTxt(meta.reps, isTimed(ex, meta))}</span>` : ''}</div></div>
+      ${prev ? `<div class="prev">Last week<br>${fmtSets(prevDone, ex, unit())}</div>` : ''}</div>
       ${meta.notes ? `<div class="note">${esc(meta.notes)}</div>` : ''}
       ${hitTop ? `<div class="up">↑ Top of the range on every set last week: ${weighted ? 'add weight' : 'add weight or reps'}</div>` : ''}
-      <div class="setgrid"><span></span><span class="h">${unit()}</span><span class="h">${meta.timed ? 'Sec' : 'Reps'}</span><span></span>`;
+      <div class="setgrid"><span></span><span class="h">${ex?.bw ? '+' : ''}${unit()}</span><span class="h">${isTimed(ex, meta) ? 'Sec' : 'Reps'}</span><span></span>`;
     sl.sets.forEach((st, j) => {
       const p = prevDone[j] || prevDone[prevDone.length - 1];
-      const pw = !p ? '' : deload ? roundLoad(+p.w / 2, unit()) : hitTop && +p.w > 0 ? roundLoad(+p.w + (unit() === 'kg' ? 2.5 : 5), unit()) : +p.w;
+      const pw0 = !p ? '' : deload ? roundLoad(+p.w / 2, unit()) : hitTop && +p.w > 0 ? roundLoad(+p.w + (unit() === 'kg' ? 2.5 : 5), unit()) : +p.w;
+      const pw = pw0 === 0 ? '' : pw0; // a suggested 0 would be logged as a fake weight (F02)
       const pr = !p ? '' : hitTop && weighted ? meta.reps[0] : p.r;
       const dc = st.done ? 'd' : '';
       h += `<span class="n">${j + 1}</span>
@@ -288,11 +291,17 @@ function viewProgress() {
   if (!logged.some(e => e.id === ui.progEx)) ui.progEx = logged[0].id;
 
   const perf = perfFor(S, ui.progEx);
-  const weighted = perf.some(p => p.sets.some(x => +x.w > 0));
-  const points = perf.map(p => ({ x: p.date, y: weighted ? Math.max(...p.sets.map(x => e1rm(+x.w, +x.r))) : Math.max(...p.sets.map(x => +x.r)) }));
+  const ex = exById(ui.progEx);
+  const { metric, points } = chartPoints(S, ex);
+  const label = {
+    e1rm: `Estimated 1-rep max (${unit()}) · sets of 1–12 reps with a weight`,
+    load: `Best added weight (${unit()})`,
+    reps: 'Best reps',
+    hold: 'Longest hold (seconds)',
+  }[metric];
   h += `<div class="card"><select data-bind="progEx">${logged.map(e => `<option value="${e.id}" ${e.id === ui.progEx ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>
-    <div class="sub">${weighted ? `Estimated 1-rep max (${unit()})` : 'Best reps'}</div>${chart(points)}</div>
-    <div class="card list">${perf.slice().reverse().slice(0, 12).map(p => `<div class="line"><span class="muted">${fmtDate(p.date)}</span><span>${fmtSets(p.sets)}</span></div>`).join('')}</div>`;
+    <div class="sub">${label}</div>${chart(points)}</div>
+    <div class="card list">${perf.slice().reverse().slice(0, 12).map(p => `<div class="line"><span class="muted">${fmtDate(p.date)}</span><span>${fmtSets(p.sets, ex, unit())}</span></div>`).join('')}</div>`;
 
   h += `<div class="sub">Recent workouts</div><div class="card list">${sessions.slice(0, 10).map(({ m, w, d, s }) => {
     const sets = s.slots.reduce((k, sl) => k + doneSets(sl).length, 0);
@@ -310,7 +319,9 @@ function viewExercises() {
   MUSCLES.forEach(mu => {
     const exs = S.exercises.filter(e => e.muscle === mu).sort(byName);
     if (!exs.length) return;
-    h += `<div class="sub">${mu}</div><div class="card list">${exs.map(e => `<div class="line"><span>${esc(e.name)}</span>
+    h += `<div class="sub">${mu}</div><div class="card list">${exs.map(e => `<div class="line"><span class="grow">${esc(e.name)}</span>
+      ${[['bw', 'BW', 'Bodyweight: log the added weight; blank means bodyweight only'], ['timed', 'Timed', 'Timed: log seconds']].map(([k, l, t]) =>
+        `<button class="chip tog ${e[k] ? 'on' : ''}" data-act="exFlag" data-id="${e.id}" data-k="${k}" aria-pressed="${!!e[k]}" title="${t}">${l}</button>`).join('')}
       ${used(e.id) ? '<span class="muted">in a plan</span>' : `<button class="icon" data-act="delExercise" data-id="${e.id}" aria-label="Delete ${esc(e.name)}">✕</button>`}</div>`).join('')}</div>`;
   });
   return h;
@@ -451,7 +462,7 @@ function applyTemplate(D, t) {
     D.days = MY_PLAN.days.map(day => ({
       name: day.name, weekday: day.weekday, notes: day.notes ?? '',
       exercises: day.exercises.map(e => ({
-        exId: ensureExercise(e.name, e.muscle).id, plan: [e.sets], reps: e.reps, type: e.type, notes: e.notes ?? '', timed: !!e.timed,
+        exId: ensureExercise(e.name, e.muscle, e).id, plan: [e.sets], reps: e.reps, type: e.type, notes: e.notes ?? '', timed: !!e.timed,
       })),
     }));
     return;
@@ -475,10 +486,16 @@ const A = {
     if (st.done) { st.done = false; save(); render(); return; }
     const wi = $(`input[data-i="${i}"][data-j="${j}"][data-f="w"]`);
     const ri = $(`input[data-i="${i}"][data-j="${j}"][data-f="r"]`);
-    if (st.w === '') st.w = wi.placeholder;
-    if (st.r === '') st.r = ri.placeholder;
-    if (st.r === '' || !(+st.r >= 0)) { toast('Enter your reps first'); return; }
-    if (st.w === '' || isNaN(+st.w)) st.w = '0';
+    const r = acceptSet(st, { w: wi.placeholder, r: ri.placeholder }, exById(s.slots[i].exId));
+    if (r.error) {
+      const el2 = r.error === 'weight' ? wi : ri;
+      el2.classList.add('bad');
+      el2.focus();
+      toast(r.error === 'weight' ? 'Enter the weight' : 'Enter reps (more than 0)');
+      return;
+    }
+    st.w = r.w;
+    st.r = r.r;
     st.done = true;
     save();
     startRest(m.days[d].exercises[i].type);
@@ -570,11 +587,12 @@ const A = {
     const name = $('#newExName').value.trim();
     if (!name) { toast('Give it a name'); return; }
     if (S.exercises.some(e => e.name.toLowerCase() === name.toLowerCase())) { toast('That exercise already exists'); return; }
-    S.exercises.push({ id: uid(), name, muscle: $('#newExMuscle').value });
+    S.exercises.push({ id: uid(), name, muscle: $('#newExMuscle').value, bw: false, timed: false });
     save();
     render();
     toast(`Added ${name}`);
   },
+  exFlag: el => { const ex = exById(el.dataset.id); ex[el.dataset.k] = !ex[el.dataset.k]; save(); render(); },
   delExercise: el => { S.exercises = S.exercises.filter(e => e.id !== el.dataset.id); save(); render(); },
 
   unit: el => { S.settings.unit = el.dataset.v; save(); render(); },
@@ -631,6 +649,7 @@ document.addEventListener('click', e => {
 document.addEventListener('input', e => {
   const t = e.target;
   if (t.dataset.f) {
+    t.classList.remove('bad');
     const { s } = curW();
     s.slots[+t.dataset.i].sets[+t.dataset.j][t.dataset.f] = t.value.replace(',', '.');
     save();

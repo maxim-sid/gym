@@ -15,6 +15,9 @@
     ['Cable Crunch', 'Abs'], ['Hanging Leg Raise', 'Abs'], ['Barbell Shrug', 'Traps'], ['Wrist Curl', 'Forearms'],
   ];
 
+  // Logged as added load (blank = bodyweight only). Seeded by exact name; editable in the Exercises tab.
+  const BW_NAMES = ['Weighted Dips', 'Weighted Pull-up', 'Chin-up (bodyweight)', 'Push-up', 'Hanging Leg Raise', 'Ab Wheel', 'Dip', 'Pull-up'];
+
   const uid = () => Math.random().toString(36).slice(2, 10);
   const isObj = x => x !== null && typeof x === 'object' && !Array.isArray(x);
 
@@ -22,7 +25,7 @@
     return {
       v: 1,
       settings: { unit: 'kg', restMain: 180, restAcc: 90 },
-      exercises: DEFAULT_EX.map(([name, muscle]) => ({ id: uid(), name, muscle })),
+      exercises: DEFAULT_EX.map(([name, muscle]) => ({ id: uid(), name, muscle, bw: BW_NAMES.includes(name), timed: false })),
       mesos: [],
       activeId: null,
     };
@@ -52,6 +55,17 @@
         Object.values(m.log).forEach(ss => {
           if (isObj(ss) && Array.isArray(ss.slots)) ss.slots.forEach(sl => { if (isObj(sl)) fill(sl, 'fb', {}); });
         });
+      });
+    }
+    // Exercise flags, seeded once (a value the user set, including false, is never overwritten).
+    if (Array.isArray(s.exercises)) {
+      const timedIds = new Set();
+      (Array.isArray(s.mesos) ? s.mesos : []).forEach(m => isObj(m) && Array.isArray(m.days) && m.days.forEach(d =>
+        isObj(d) && Array.isArray(d.exercises) && d.exercises.forEach(sl => { if (isObj(sl) && sl.timed) timedIds.add(sl.exId); })));
+      s.exercises.forEach(ex => {
+        if (!isObj(ex)) return;
+        fill(ex, 'bw', BW_NAMES.includes(ex.name));
+        fill(ex, 'timed', timedIds.has(ex.id));
       });
     }
     return changed;
@@ -224,6 +238,44 @@
     return { changes };
   }
 
+  // ✓ on a set: typed value, else the suggestion (prefill), else the rules below. Never invents a 0.
+  // pre: {w, r} suggested values (a suggested weight of 0 counts as none). → {ok, w, r} | {error: 'weight'|'reps'}
+  function acceptSet(st, pre, ex) {
+    const preW = pre?.w == null || pre.w === '' || +pre.w === 0 ? '' : String(pre.w);
+    const w = st.w !== '' ? String(st.w) : preW;
+    const r = st.r !== '' ? String(st.r) : String(pre?.r ?? '');
+    if (w === '' ? !ex?.bw : isNaN(+w)) return { error: 'weight' };   // blank is only OK for bodyweight exercises
+    if (r === '' || !(+r > 0)) return { error: 'reps' };
+    return { ok: true, w, r };
+  }
+
+  // "100×8, 100×7" · bodyweight "BW×8, +20×6" · timed "30 s, +10 kg · 25 s". Legacy weighted 0 → "8 reps".
+  function fmtSets(sets, ex, unit) {
+    return sets.map(x => {
+      const w = +x.w;
+      if (ex?.timed) return w > 0 ? `+${w} ${unit} · ${x.r} s` : `${x.r} s`;
+      if (ex?.bw) return w > 0 ? `+${w}×${x.r}` : `BW×${x.r}`;
+      return w ? `${w}×${x.r}` : `${x.r} reps`;
+    }).join(', ');
+  }
+
+  // Progress chart for one exercise. → {metric: 'e1rm'|'load'|'reps'|'hold', points: [{x: date, y}]}
+  // e1rm: only sets with a known load (w > 0) and 1–12 reps; sessions without one are left out, not plotted as 0.
+  function chartPoints(S, ex) {
+    const perf = perfFor(S, ex.id);
+    const maxOf = (sets, f) => Math.max(...sets.map(f));
+    const per = f => perf.map(p => ({ x: p.date, y: f(p.sets) }));
+    if (ex.timed) return { metric: 'hold', points: per(sets => maxOf(sets, x => +x.r)) };
+    const anyLoad = perf.some(p => p.sets.some(x => +x.w > 0));
+    if (!anyLoad) return { metric: 'reps', points: per(sets => maxOf(sets, x => +x.r)) };
+    if (ex.bw) return { metric: 'load', points: per(sets => Math.max(0, maxOf(sets, x => +x.w || 0))) };
+    const points = perf.map(p => {
+      const q = p.sets.filter(x => +x.w > 0 && +x.r >= 1 && +x.r <= 12);
+      return q.length ? { x: p.date, y: maxOf(q, x => e1rm(+x.w, +x.r)) } : null;
+    }).filter(Boolean);
+    return { metric: 'e1rm', points };
+  }
+
   function allSessions(S) {
     const out = [];
     S.mesos.forEach(m => Object.entries(m.log).forEach(([k, s]) => {
@@ -280,6 +332,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, prevSlot, advance,
-    finishSession, allSessions, perfFor };
+    finishSession, allSessions, perfFor, BW_NAMES, acceptSet, fmtSets, chartPoints };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);
