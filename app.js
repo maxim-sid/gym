@@ -485,6 +485,16 @@ function applyTemplate(D, t) {
   }));
 }
 
+// The draft as meso fields, or null (with a toast) if it can't be saved. Doesn't change the draft.
+function draftFields(D) {
+  if (!D.days.length || D.days.some(d => !d.exercises.length)) { toast('Every day needs at least one exercise'); return null; }
+  return {
+    name: D.name.trim() || 'Mesocycle', weeks: D.weeks, deload: D.deload, style: D.style,
+    days: D.days.map(d => ({ ...copyDay(d), name: d.name.trim() || 'Day' })),
+  };
+}
+const newMeso = fields => ({ id: uid(), ...fields, log: {}, pos: { w: 0, d: 0 }, complete: false, created: Date.now() });
+
 const A = {
   tab: el => { ui.tab = el.dataset.tab; render(); window.scrollTo(0, 0); },
   goto: el => { ui.at = { meso: S.activeId, w: +el.dataset.w, d: +el.dataset.d }; render(); },
@@ -579,14 +589,22 @@ const A = {
   },
   cancelDraft: () => { ui.draft = null; render(); },
   // Keeps the edits: same draft through the new-block path, named like Copy does.
-  saveCopy: () => { const D = ui.draft; D.editId = null; D.name = `${D.name.trim() || 'Mesocycle'} (copy)`; A.saveDraft(); },
+  // Keeps the edits as a NEW block without switching to it (the current block stays active).
+  saveCopy: () => {
+    const fields = draftFields(ui.draft);
+    if (!fields) return;
+    if (!/ \(copy\)$/.test(fields.name)) fields.name += ' (copy)';
+    S.mesos.push(newMeso(fields));
+    ui.draft = null;
+    save();
+    render();
+    window.scrollTo(0, 0);
+    toast('Saved as a copy — tap Make active when you want to switch');
+  },
   saveDraft: () => {
     const D = ui.draft;
-    if (!D.days.length || D.days.some(d => !d.exercises.length)) { toast('Every day needs at least one exercise'); return; }
-    const fields = {
-      name: D.name.trim() || 'Mesocycle', weeks: D.weeks, deload: D.deload, style: D.style,
-      days: D.days.map(d => ({ ...copyDay(d), name: d.name.trim() || 'Day' })),
-    };
+    const fields = draftFields(D);
+    if (!fields) return;
     if (D.editId) {
       const m = S.mesos.find(x => x.id === D.editId);
       if (!canSaveEdit(m)) {
@@ -597,7 +615,7 @@ const A = {
       m.log = {}; // only empty sessions are left; drop them so none is out of line with the edited days
       Object.assign(m, fields);
     } else {
-      const m = { id: uid(), ...fields, log: {}, pos: { w: 0, d: 0 }, complete: false, created: Date.now() };
+      const m = newMeso(fields);
       S.mesos.push(m);
       S.activeId = m.id;
     }
