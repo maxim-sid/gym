@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof bumpOn !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof restoreSet !== 'function') {
   document.getElementById('main').textContent = 'Update in progress — please reload.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -402,13 +402,20 @@ function render() {
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === ui.tab));
 }
 
-let toastTimer;
-function toast(msg) {
+// One toast at a time, at the bottom. opt {label, act}: an action button (44 px) shown for 6 s. The action lives
+// here, not in the DOM; a newer toast replaces it, so an old toast's action can never fire.
+let toastTimer, toastAction = null;
+function toast(msg, opt) {
   const el = $('#toast');
-  el.textContent = msg;
+  toastAction = opt?.act || null;
+  el.innerHTML = `<span>${esc(msg)}</span>${toastAction ? `<button class="tact" data-act="toastAct">${esc(opt.label || 'Undo')}</button>` : ''}`;
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 3200);
+  const mine = toastAction;
+  toastTimer = setTimeout(() => {
+    el.classList.remove('show');
+    if (toastAction === mine) toastAction = null;
+  }, toastAction ? 6000 : 3200);
 }
 
 /* ---------- rest timer ---------- */
@@ -523,6 +530,16 @@ const newMeso = fields => ({ id: uid(), ...fields, log: {}, pos: { w: 0, d: 0 },
 const A = {
   tab: el => { ui.tab = el.dataset.tab; ui.edit = null; render(); window.scrollTo(0, 0); },
   goto: el => { ui.at = { meso: S.activeId, w: +el.dataset.w, d: +el.dataset.d }; ui.edit = null; render(); },
+  toastAct: () => {
+    const act = toastAction;
+    toastAction = null;
+    clearTimeout(toastTimer);
+    $('#toast').classList.remove('show');
+    if (!act) return;
+    act();
+    save();
+    render();
+  },
   editOn: () => { ui.edit = sessKey(activeMeso(), ui.at.w, ui.at.d); render(); },
   editOff: () => { ui.edit = null; render(); },
   start: () => { const { m, w, d } = { m: activeMeso(), ...ui.at }; session(m, w, d, true); save(); render(); },
@@ -556,20 +573,23 @@ const A = {
     const { m, s, d } = c0;
     const c = slotCtx(m, ui.at.w, d, s, +el.dataset.i);
     if (!c.last || !c.meta.reps) return;
-    toggleBump(c.sl, c.last, c.step, c.meta.reps);
+    const n = toggleBump(c.sl, c.last, c.step, c.meta.reps);
     save();
     render();
+    if (bumpOn(c.sl) && n) toast(`Filled ${n} set${n === 1 ? '' : 's'}`, { label: 'Undo', act: () => { if (bumpOn(c.sl)) toggleBump(c.sl, c.last, c.step, c.meta.reps); } });
   },
   setNum: el => {
     const i = +el.dataset.i, j = +el.dataset.j;
     const c0 = curW();
     const st = c0?.s.slots[i]?.sets[j];
     if (!st?.done || !confirm(`Untick set ${j + 1}?`)) return;
+    const snap = snapSet(st);
     untickSet(st);
     const a = rest?.at;
     if (!c0.s.done && a && a.w === ui.at.w && a.d === ui.at.d && a.i === i && a.j === j) stopRest();
     save();
     render();
+    toast(`Set ${j + 1} unticked`, { label: 'Undo', act: () => restoreSet(st, snap) });
   },
   addSet: el => { const c = curW(); if (!c) return; c.s.slots[+el.dataset.i].sets.push(...blankSets(1)); save(); render(); },
   rmSet: el => {

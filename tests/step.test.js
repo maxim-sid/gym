@@ -86,3 +86,28 @@ test('after the chip, the reps rule does not flip reps back, and ✓ logs the bu
   assert.deepEqual(C.acceptSet(sl.sets[1], C.prefill(sl, 1, L, { bw: false }, { step: 2 }), { bw: false }),
     { ok: true, w: '16', r: '8' });
 });
+
+/* ---------- 1.8: Undo helpers ---------- */
+
+test('snapSet/restoreSet: Undo of an untick brings back done and t exactly', () => {
+  const st = { w: '60', r: '8', done: true, t: 123 };
+  const snap = C.snapSet(st);
+  C.untickSet(st);
+  assert.deepEqual(st, { w: '60', r: '8', done: false });
+  C.restoreSet(st, snap);
+  assert.deepEqual(st, { w: '60', r: '8', done: true, t: 123 });
+  const st2 = { w: '', r: '', done: false };
+  const snap2 = C.snapSet(st2);
+  C.tickSet(st2, { w: '50', r: '5' }, 9);
+  C.restoreSet(st2, snap2);
+  assert.deepEqual(st2, { w: '', r: '', done: false }); // fields added since (t) are removed
+});
+
+test('chip Undo = a second toggle: clears exactly what the first one filled', () => {
+  const L = last([set(60, 10), set(60, 10)]);
+  const sl = { sets: [blank(), { w: '61', r: '', done: false }] };
+  const before = JSON.parse(JSON.stringify(sl));
+  C.toggleBump(sl, L, 2.5, [8, 10]);
+  C.toggleBump(sl, L, 2.5, [8, 10]);
+  assert.deepEqual(sl, before);
+});

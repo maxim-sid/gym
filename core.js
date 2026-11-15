@@ -269,6 +269,13 @@
     return true;
   }
 
+  // For Undo: a copy of a set's fields, and putting them back exactly (fields absent in the copy are removed).
+  const snapSet = st => ({ ...st });
+  function restoreSet(st, snap) {
+    Object.keys(st).forEach(k => { if (!(k in snap)) delete st[k]; });
+    Object.assign(st, snap);
+  }
+
   function untickSet(st) {
     st.done = false;
     delete st.t;
@@ -452,6 +459,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, advance,
-    finishSession, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, stepOf, bumpOn, toggleBump, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet };
+    finishSession, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, stepOf, bumpOn, toggleBump, snapSet, restoreSet, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);
