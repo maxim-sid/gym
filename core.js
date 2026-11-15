@@ -111,6 +111,131 @@
     return { state: r.state, mode: 'ok', raw };
   }
 
+  /* ---------- plan, sessions and progression (moved from app.js unchanged) ---------- */
+
+  // Answer index is stored per question; setDelta() turns answers into a set change for next week.
+  const FEEDBACK = [
+    { k: 'sore', q: 'Soreness going in (from last time)?', opts: ['None', 'Healed a while ago', 'Healed just in time', 'Still sore'] },
+    { k: 'pump', q: 'Pump?', opts: ['Low', 'Moderate', 'Amazing'] },
+    { k: 'work', q: 'Workload?', opts: ['Easy', 'Pretty good', 'Pushed my limits', 'Too much'] },
+    { k: 'joint', q: 'Joint pain?', opts: ['None', 'Some', 'A lot'] },
+  ];
+
+  function setDelta(fb) {
+    if (!Object.keys(fb).length) return 0;
+    const { sore = 1, pump = 1, work = 1, joint = 0 } = fb;
+    let d;
+    if (sore === 3 || work === 3) d = -1;            // not recovering: back off
+    else if (sore === 2 || work === 2) d = 0;        // right at the edge: hold
+    else if (pump === 0 && sore === 0 && work === 0) d = 2; // way under-stimulated
+    else d = 1;                                      // recovering fine: add a set
+    if (joint === 1) d = Math.min(d, 0);
+    if (joint === 2) d = -1;
+    return d;
+  }
+
+  const doneSets = sl => sl.sets.filter(x => x.done);
+  const e1rm = (w, r) => w * (1 + r / 30);
+  const blankSets = n => Array.from({ length: n }, () => ({ w: '', r: '', done: false }));
+  const roundLoad = (w, unit) => { const step = unit === 'kg' ? 2.5 : 5; return Math.round(w / step) * step; };
+  const repsTxt = (r, timed) => (r ? (r[0] === r[1] ? `${r[0]}` : `${r[0]}–${r[1]}`) + (timed ? ' s' : '') : '');
+  function parseReps(str) {
+    const m = String(str).match(/(\d+)\s*(?:[-–]\s*(\d+))?/);
+    if (!m) return null;
+    const a = +m[1], b = +(m[2] ?? m[1]);
+    return [Math.min(a, b), Math.max(a, b)];
+  }
+
+  const totalWeeks = m => m.weeks + (m.deload ? 1 : 0);
+  const isDeload = (m, w) => m.deload && w === m.weeks;
+  const isFixed = m => m.style === 'fixed';
+
+  // Training order within a week: by weekday, starting from Day 1's weekday (e.g. Sat, Sun, Wed).
+  function dayOrder(m) {
+    const idx = m.days.map((_, i) => i);
+    const start = m.days[0]?.weekday;
+    if (start == null || m.days.some(d => d.weekday == null)) return idx;
+    return idx.sort((a, b) => ((m.days[a].weekday - start + 7) % 7) - ((m.days[b].weekday - start + 7) % 7));
+  }
+
+  function targetRIR(m, w) {
+    if (m.weeks === 1) return 2;
+    return Math.round(3 - (3 * w) / (m.weeks - 1));
+  }
+
+  function plannedSets(m, d, i, w) {
+    const plan = m.days[d].exercises[i].plan;
+    if (isDeload(m, w)) return Math.max(1, Math.round(plan[0] / 2));
+    for (let k = w; k >= 0; k--) if (plan[k] != null) return plan[k];
+    return plan[0];
+  }
+
+  function session(m, w, d, create) {
+    const k = `${w}-${d}`;
+    if (!m.log[k] && create) {
+      m.log[k] = {
+        date: null, done: false,
+        slots: m.days[d].exercises.map((sl, i) => ({ exId: sl.exId, sets: blankSets(plannedSets(m, d, i, w)), fb: {} })),
+      };
+    }
+    return m.log[k];
+  }
+
+  function prevSlot(m, w, d, i) {
+    if (w === 0) return null;
+    const sl = m.log[`${w - 1}-${d}`]?.slots[i];
+    return sl && doneSets(sl).length ? sl : null;
+  }
+
+  function advance(m) {
+    for (let w = 0; w < totalWeeks(m); w++) {
+      for (const d of dayOrder(m)) {
+        if (!m.log[`${w}-${d}`]?.done) { m.pos = { w, d }; m.complete = false; return; }
+      }
+    }
+    m.complete = true;
+  }
+
+  // The data part of "Finish workout". changes: [{exId, from, to}] for next week's set counts (rp only).
+  function finishSession(m, w, d, s, now) {
+    const base = s.slots.map(sl => sl.sets.length);
+    s.slots.forEach(sl => { sl.sets = doneSets(sl); });
+    const changes = [];
+    if (!isFixed(m) && !isDeload(m, w) && w + 1 < m.weeks) {
+      m.days[d].exercises.forEach((slot, i) => {
+        const n = Math.max(1, Math.min(12, base[i] + setDelta(s.slots[i].fb)));
+        slot.plan[w + 1] = n;
+        if (n !== base[i]) changes.push({ exId: slot.exId, from: base[i], to: n });
+        const next = m.log[`${w + 1}-${d}`];
+        if (next && !next.done && !next.slots[i].sets.some(x => x.done)) next.slots[i].sets = blankSets(n);
+      });
+    }
+    s.done = true;
+    s.date = now;
+    advance(m);
+    return { changes };
+  }
+
+  function allSessions(S) {
+    const out = [];
+    S.mesos.forEach(m => Object.entries(m.log).forEach(([k, s]) => {
+      if (!s.done) return;
+      const [w, d] = k.split('-').map(Number);
+      out.push({ m, w, d, s });
+    }));
+    return out.sort((a, b) => b.s.date - a.s.date);
+  }
+
+  function perfFor(S, exId) {
+    const out = [];
+    allSessions(S).forEach(({ s }) => s.slots.forEach(sl => {
+      if (sl.exId !== exId) return;
+      const sets = doneSets(sl).filter(x => +x.r > 0);
+      if (sets.length) out.push({ date: s.date, sets });
+    }));
+    return out.sort((a, b) => a.date - b.date);
+  }
+
   const BEFORE_IMPORT_KEY = 'liftbook-before-import';
 
   // What a state holds, for the import confirm. Only finished workouts count.
@@ -144,6 +269,9 @@
   }
 
   const api = { DEFAULT_EX, uid, freshState, normalize, validate, loadFrom, loadState, summarize, importInto,
-    KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY };
+    KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
+    FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
+    totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, session, prevSlot, advance,
+    finishSession, allSessions, perfFor };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

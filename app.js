@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof finishSession !== 'function') {
   document.getElementById('main').textContent = 'Update in progress — please reload.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -11,7 +11,7 @@ if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof 
 
 const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs', 'Traps', 'Forearms'];
 
-// DEFAULT_EX, uid, freshState and the load logic live in core.js.
+// DEFAULT_EX, FEEDBACK, uid, freshState, the load logic and the plan/progression math live in core.js.
 
 const TEMPLATES = {
   'Full Body · 3 days': [
@@ -31,27 +31,6 @@ const TEMPLATES = {
     ['Legs', ['Back Squat', 'Romanian Deadlift', 'Leg Extension', 'Lying Leg Curl', 'Standing Calf Raise']],
   ],
 };
-
-// Answer index is stored per question; setDelta() turns answers into a set change for next week.
-const FEEDBACK = [
-  { k: 'sore', q: 'Soreness going in (from last time)?', opts: ['None', 'Healed a while ago', 'Healed just in time', 'Still sore'] },
-  { k: 'pump', q: 'Pump?', opts: ['Low', 'Moderate', 'Amazing'] },
-  { k: 'work', q: 'Workload?', opts: ['Easy', 'Pretty good', 'Pushed my limits', 'Too much'] },
-  { k: 'joint', q: 'Joint pain?', opts: ['None', 'Some', 'A lot'] },
-];
-
-function setDelta(fb) {
-  if (!Object.keys(fb).length) return 0;
-  const { sore = 1, pump = 1, work = 1, joint = 0 } = fb;
-  let d;
-  if (sore === 3 || work === 3) d = -1;            // not recovering: back off
-  else if (sore === 2 || work === 2) d = 0;        // right at the edge: hold
-  else if (pump === 0 && sore === 0 && work === 0) d = 2; // way under-stimulated
-  else d = 1;                                      // recovering fine: add a set
-  if (joint === 1) d = Math.min(d, 0);
-  if (joint === 2) d = -1;
-  return d;
-}
 
 /* ---------- state ---------- */
 
@@ -85,20 +64,9 @@ const byName = (a, b) => a.name.localeCompare(b.name);
 const unit = () => S.settings.unit;
 const fmtDate = ts => new Date(ts).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 const fmtTime = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-const doneSets = sl => sl.sets.filter(x => x.done);
 const fmtSets = sets => sets.map(x => (+x.w ? `${+x.w}×${x.r}` : `${x.r} reps`)).join(', ');
-const e1rm = (w, r) => w * (1 + r / 30);
-const blankSets = n => Array.from({ length: n }, () => ({ w: '', r: '', done: false }));
-const roundLoad = w => { const step = unit() === 'kg' ? 2.5 : 5; return Math.round(w / step) * step; };
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const repsTxt = (r, timed) => (r ? (r[0] === r[1] ? `${r[0]}` : `${r[0]}–${r[1]}`) + (timed ? ' s' : '') : '');
-function parseReps(str) {
-  const m = String(str).match(/(\d+)\s*(?:[-–]\s*(\d+))?/);
-  if (!m) return null;
-  const a = +m[1], b = +(m[2] ?? m[1]);
-  return [Math.min(a, b), Math.max(a, b)];
-}
 
 function ensureExercise(name, muscle) {
   let ex = S.exercises.find(e => e.name.toLowerCase() === name.toLowerCase());
@@ -107,55 +75,6 @@ function ensureExercise(name, muscle) {
 }
 
 const activeMeso = () => S.mesos.find(m => m.id === S.activeId);
-const totalWeeks = m => m.weeks + (m.deload ? 1 : 0);
-const isDeload = (m, w) => m.deload && w === m.weeks;
-const isFixed = m => m.style === 'fixed';
-
-// Training order within a week: by weekday, starting from Day 1's weekday (e.g. Sat, Sun, Wed).
-function dayOrder(m) {
-  const idx = m.days.map((_, i) => i);
-  const start = m.days[0]?.weekday;
-  if (start == null || m.days.some(d => d.weekday == null)) return idx;
-  return idx.sort((a, b) => ((m.days[a].weekday - start + 7) % 7) - ((m.days[b].weekday - start + 7) % 7));
-}
-
-function targetRIR(m, w) {
-  if (m.weeks === 1) return 2;
-  return Math.round(3 - (3 * w) / (m.weeks - 1));
-}
-
-function plannedSets(m, d, i, w) {
-  const plan = m.days[d].exercises[i].plan;
-  if (isDeload(m, w)) return Math.max(1, Math.round(plan[0] / 2));
-  for (let k = w; k >= 0; k--) if (plan[k] != null) return plan[k];
-  return plan[0];
-}
-
-function session(m, w, d, create) {
-  const k = `${w}-${d}`;
-  if (!m.log[k] && create) {
-    m.log[k] = {
-      date: null, done: false,
-      slots: m.days[d].exercises.map((sl, i) => ({ exId: sl.exId, sets: blankSets(plannedSets(m, d, i, w)), fb: {} })),
-    };
-  }
-  return m.log[k];
-}
-
-function prevSlot(m, w, d, i) {
-  if (w === 0) return null;
-  const sl = m.log[`${w - 1}-${d}`]?.slots[i];
-  return sl && doneSets(sl).length ? sl : null;
-}
-
-function advance(m) {
-  for (let w = 0; w < totalWeeks(m); w++) {
-    for (const d of dayOrder(m)) {
-      if (!m.log[`${w}-${d}`]?.done) { m.pos = { w, d }; m.complete = false; return; }
-    }
-  }
-  m.complete = true;
-}
 
 function cur() {
   const m = activeMeso();
@@ -246,7 +165,7 @@ function viewToday() {
       <div class="setgrid"><span></span><span class="h">${unit()}</span><span class="h">${meta.timed ? 'Sec' : 'Reps'}</span><span></span>`;
     sl.sets.forEach((st, j) => {
       const p = prevDone[j] || prevDone[prevDone.length - 1];
-      const pw = !p ? '' : deload ? roundLoad(+p.w / 2) : hitTop && +p.w > 0 ? roundLoad(+p.w + (unit() === 'kg' ? 2.5 : 5)) : +p.w;
+      const pw = !p ? '' : deload ? roundLoad(+p.w / 2, unit()) : hitTop && +p.w > 0 ? roundLoad(+p.w + (unit() === 'kg' ? 2.5 : 5), unit()) : +p.w;
       const pr = !p ? '' : hitTop && weighted ? meta.reps[0] : p.r;
       const dc = st.done ? 'd' : '';
       h += `<span class="n">${j + 1}</span>
@@ -337,25 +256,6 @@ function viewBuilder() {
   return h;
 }
 
-function allSessions() {
-  const out = [];
-  S.mesos.forEach(m => Object.entries(m.log).forEach(([k, s]) => {
-    if (!s.done) return;
-    const [w, d] = k.split('-').map(Number);
-    out.push({ m, w, d, s });
-  }));
-  return out.sort((a, b) => b.s.date - a.s.date);
-}
-
-function perfFor(exId) {
-  const out = [];
-  allSessions().forEach(({ s }) => s.slots.forEach(sl => {
-    if (sl.exId !== exId) return;
-    const sets = doneSets(sl).filter(x => +x.r > 0);
-    if (sets.length) out.push({ date: s.date, sets });
-  }));
-  return out.sort((a, b) => a.date - b.date);
-}
 
 function chart(points) {
   if (points.length < 2) return '<p class="hint">Log this exercise in at least two workouts to see a trend.</p>';
@@ -374,7 +274,7 @@ function chart(points) {
 }
 
 function viewProgress() {
-  const sessions = allSessions();
+  const sessions = allSessions(S);
   const weekAgo = Date.now() - 7 * 864e5;
   const totalSets = sessions.reduce((n, { s }) => n + s.slots.reduce((k, sl) => k + doneSets(sl).length, 0), 0);
   let h = `<header class="top"><h1>Progress</h1></header>
@@ -382,11 +282,11 @@ function viewProgress() {
     <div class="stat"><b>${sessions.filter(x => x.s.date > weekAgo).length}</b><span>Last 7 days</span></div>
     <div class="stat"><b>${totalSets}</b><span>Total sets</span></div></div>`;
 
-  const logged = S.exercises.filter(e => perfFor(e.id).length).sort(byName);
+  const logged = S.exercises.filter(e => perfFor(S, e.id).length).sort(byName);
   if (!logged.length) return h + '<p class="hint">Finish a workout and your progress shows up here.</p>';
   if (!logged.some(e => e.id === ui.progEx)) ui.progEx = logged[0].id;
 
-  const perf = perfFor(ui.progEx);
+  const perf = perfFor(S, ui.progEx);
   const weighted = perf.some(p => p.sets.some(x => +x.w > 0));
   const points = perf.map(p => ({ x: p.date, y: weighted ? Math.max(...p.sets.map(x => e1rm(+x.w, +x.r))) : Math.max(...p.sets.map(x => +x.r)) }));
   h += `<div class="card"><select data-bind="progEx">${logged.map(e => `<option value="${e.id}" ${e.id === ui.progEx ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>
@@ -594,21 +494,7 @@ const A = {
     const { m, s, w, d } = cur();
     if (s.slots.some(sl => sl.sets.some(x => !x.done)) &&
       !confirm('Some sets aren’t checked off. Finish anyway? Unchecked sets will be dropped.')) return;
-    const base = s.slots.map(sl => sl.sets.length);
-    s.slots.forEach(sl => { sl.sets = doneSets(sl); });
-    const changes = [];
-    if (!isFixed(m) && !isDeload(m, w) && w + 1 < m.weeks) {
-      m.days[d].exercises.forEach((slot, i) => {
-        const n = Math.max(1, Math.min(12, base[i] + setDelta(s.slots[i].fb)));
-        slot.plan[w + 1] = n;
-        if (n !== base[i]) changes.push(`${exById(slot.exId)?.name} ${base[i]}→${n}`);
-        const next = m.log[`${w + 1}-${d}`];
-        if (next && !next.done && !next.slots[i].sets.some(x => x.done)) next.slots[i].sets = blankSets(n);
-      });
-    }
-    s.done = true;
-    s.date = Date.now();
-    advance(m);
+    const changes = finishSession(m, w, d, s, Date.now()).changes.map(c => `${exById(c.exId)?.name} ${c.from}→${c.to}`);
     ui.at = null;
     stopRest();
     save();
@@ -777,6 +663,7 @@ $('#importFile').addEventListener('change', async e => {
   }
   S = r.state;
   Object.assign(ui, { at: null, draft: null, progEx: null });
+  stopRest();
   render();
   toast('Backup restored');
 });
