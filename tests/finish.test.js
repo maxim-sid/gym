@@ -165,3 +165,16 @@ test('restoreFinish keeps a next-week session created after Finish once somethin
   C.restoreFinish(m, snap2);
   assert.equal(m.log['3-0'], undefined);
 });
+
+test('hasContent (week-dot "started"): an empty created session is not started; typed, ticked or done is', () => {
+  const m = meso();
+  assert.equal(C.hasContent(undefined), false);
+  const s = C.session(m, 0, 0, true);
+  assert.equal(C.hasContent(s), false);
+  s.slots[0].sets[0].w = '60';
+  assert.equal(C.hasContent(s), true);
+  s.slots[0].sets[0].w = '';
+  s.slots[1].sets[0].done = true;
+  assert.equal(C.hasContent(s), true);
+  assert.equal(C.hasContent({ done: true, slots: [] }), true);
+});

@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof renameExercise !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof hasContent !== 'function') {
   document.getElementById('main').textContent = 'Update in progress — please reload.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -154,9 +154,13 @@ function viewToday() {
     h += `<div class="wk"><span>${isDeload(m, ww) ? 'Deload' : `W${ww + 1}`}</span>`;
     dayOrder(m).forEach(di => {
       const ss = m.log[`${ww}-${di}`];
-      const cls = [ww === w && di === d ? 'cur' : '', ss?.done ? 'done' : '', ss && !ss.done ? 'started' : ''].join(' ');
+      // State is shown by a glyph and in the label too, not by colour alone: ✓ done, • started.
+      const state = ss?.done ? 'done' : hasContent(ss) ? 'started' : '';
+      const here = ww === w && di === d;
       const wd = m.days[di].weekday;
-      h += `<button class="dot ${cls}" data-act="goto" data-w="${ww}" data-d="${di}" aria-label="Week ${ww + 1} ${esc(m.days[di].name)}">${wd != null ? WEEKDAYS[wd].slice(0, 2) : di + 1}</button>`;
+      const label = `Week ${ww + 1} ${m.days[di].name}${state ? `, ${state}` : ''}${here ? ', shown' : ''}`;
+      h += `<button class="dot ${here ? 'cur' : ''} ${state}" data-act="goto" data-w="${ww}" data-d="${di}" aria-label="${esc(label)}" ${here ? 'aria-current="true"' : ''}>${
+        state === 'done' ? '✓' : state === 'started' ? '•' : ''}${wd != null ? WEEKDAYS[wd].slice(0, 2) : di + 1}</button>`;
     });
     h += '</div>';
   }
