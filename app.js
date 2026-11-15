@@ -256,7 +256,12 @@ function viewBuilder() {
     h += `<div class="card"><div class="sub">Week 1 sets per muscle</div><div class="vol">${MUSCLES.filter(mu => vol[mu]).map(mu => `<span>${mu} <b>${vol[mu]}</b></span>`).join('')}</div>
       <p class="hint">Starting low (around 2 sets per exercise) is fine. The app adds sets as you go.</p></div>`;
   }
-  h += `<div class="row"><button class="btn grow" data-act="cancelDraft">Cancel</button><button class="btn primary grow" data-act="saveDraft">${D.editId ? 'Save' : 'Save & start'}</button></div>`;
+  // Editing a block that got logs (editor left open across tabs) or was deleted: offer to keep the edits as a new block.
+  const stale = D.editId && !canSaveEdit(S.mesos.find(m => m.id === D.editId));
+  if (stale) h += `<p class="hint">This block can’t be changed any more. Your edits can be saved as a new block.</p>`;
+  h += `<div class="row"><button class="btn grow" data-act="cancelDraft">Cancel</button>${stale
+    ? '<button class="btn primary grow" data-act="saveCopy">Save as a copy</button>'
+    : `<button class="btn primary grow" data-act="saveDraft">${D.editId ? 'Save' : 'Save & start'}</button>`}</div>`;
   return h;
 }
 
@@ -569,6 +574,8 @@ const A = {
     render();
   },
   cancelDraft: () => { ui.draft = null; render(); },
+  // Keeps the edits: same draft through the new-block path, named like Copy does.
+  saveCopy: () => { const D = ui.draft; D.editId = null; D.name = `${D.name.trim() || 'Mesocycle'} (copy)`; A.saveDraft(); },
   saveDraft: () => {
     const D = ui.draft;
     if (!D.days.length || D.days.some(d => !d.exercises.length)) { toast('Every day needs at least one exercise'); return; }
@@ -578,7 +585,11 @@ const A = {
     };
     if (D.editId) {
       const m = S.mesos.find(x => x.id === D.editId);
-      if (!canSaveEdit(m)) { toast('This block now has logged workouts — use Copy instead'); return; }
+      if (!canSaveEdit(m)) {
+        toast(m ? 'This block now has logged workouts — save your edits as a copy' : 'This block no longer exists');
+        render(); // swaps Save for "Save as a copy"
+        return;
+      }
       m.log = {}; // only empty sessions are left; drop them so none is out of line with the edited days
       Object.assign(m, fields);
     } else {
