@@ -104,13 +104,14 @@ test('prefill: a 0/blank weight is no suggestion for a weighted lift; bodyweight
   assert.deepEqual(C.prefill(b, 1, last([set(20, 8), set(20, 8)]), bwEx), { w: '', r: '8' }); // BW today stays BW
 });
 
-test('prefill: deload halves last time\'s weight (roundLoad); ↑ bump unchanged from before 1.4', () => {
+// Changed deliberately in 1.4b: the ↑ bump is no longer baked into the suggestion (it was 14 → 17.5, F15),
+// and the deload halving rounds to the exercise's step instead of the unit's 2.5/5.
+test('prefill shows last time\'s real weight; deload halves it to the exercise\'s step', () => {
   const L = last([set(14, 10), set(14, 10)]);
-  assert.deepEqual(C.prefill({ sets: [blank()] }, 0, L, lift, { deload: true, unit: 'kg' }), { w: '7.5', r: '10' });
-  const bump = { hitTop: true, weighted: true, repsLo: 8, unit: 'kg' };
-  assert.deepEqual(C.prefill({ sets: [blank(), blank()] }, 0, L, lift, bump), { w: '17.5', r: '8' }); // F15 quirk kept until 1.4b
-  assert.deepEqual(C.prefill({ sets: [set(17.5, 8), blank()] }, 1, L, lift, bump), { w: '17.5', r: '8' });
-  assert.deepEqual(C.prefill({ sets: [blank()] }, 0, L, lift, { ...bump, unit: 'lb' }), { w: '20', r: '8' });
+  assert.deepEqual(C.prefill({ sets: [blank(), blank()] }, 0, L, lift, { step: 2 }), { w: '14', r: '10' });
+  assert.deepEqual(C.prefill({ sets: [blank()] }, 0, L, lift, { deload: true, step: 2 }), { w: '8', r: '10' });
+  assert.deepEqual(C.prefill({ sets: [blank()] }, 0, L, lift, { deload: true, step: 2.5 }), { w: '7.5', r: '10' });
+  assert.deepEqual(C.prefill({ sets: [blank()] }, 0, last([set(45, 8)]), lift, { deload: true, step: 5 }), { w: '25', r: '8' });
 });
 
 test('slotHints: ↑ compares against the CURRENT slot\'s rep range', () => {

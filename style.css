@@ -76,7 +76,10 @@ h2 { font-size: 17px; margin: 0; }
 .tags .tag { margin: 0; }
 .tag.main { color: var(--acc); background: rgba(255,106,61,.12); }
 .note { color: var(--muted); font-size: 13px; margin: -2px 0 10px; }
-.up { color: var(--ok); font-size: 13px; font-weight: 600; margin: -2px 0 10px; }
+.up { color: var(--ok); font-size: 13px; font-weight: 600; margin: -2px 0 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.chip.bump { min-height: 44px; flex: none; color: var(--ok); border-color: var(--ok); font-weight: 700; }
+.chip.bump.on { background: var(--ok); border-color: var(--ok); color: #04130a; }
+.line select.stepsel { width: auto; min-height: 44px; padding: 8px 6px; flex: none; }
 
 /* builder */
 .mini { display: flex; gap: 6px; align-items: center; margin-top: 6px; }

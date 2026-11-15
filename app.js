@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof prefill !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof toggleBump !== 'function') {
   document.getElementById('main').textContent = 'Update in progress — please reload.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -68,9 +68,13 @@ const fmtTime = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 // Finds by name, or creates it with the flags given (bw/timed from plan.js). Never changes an existing exercise.
-function ensureExercise(name, muscle, { bw = false, timed = false } = {}) {
+function ensureExercise(name, muscle, { bw = false, timed = false, step } = {}) {
   let ex = S.exercises.find(e => e.name.toLowerCase() === name.toLowerCase());
-  if (!ex) { ex = { id: uid(), name, muscle, bw: !!bw, timed: !!timed }; S.exercises.push(ex); }
+  if (!ex) {
+    ex = { id: uid(), name, muscle, bw: !!bw, timed: !!timed };
+    if (+step > 0) ex.step = +step;
+    S.exercises.push(ex);
+  }
   return ex;
 }
 // Timed: the exercise flag decides once set (it is seeded for every exercise); the plan slot is the fallback.
@@ -85,8 +89,8 @@ function slotCtx(m, w, d, s, i) {
   const occurrence = s.slots.slice(0, i).filter(x => x.exId === sl.exId).length;
   const last = lastPerf(S, sl.exId, { exclude: s, occurrence, before: s.done ? s.date : Infinity });
   const { hitTop, weighted } = slotHints(last, meta.reps, deload);
-  const opts = { deload, hitTop, weighted, repsLo: meta.reps?.[0] ?? null, unit: unit() };
-  return { sl, ex, meta, last, hitTop, weighted, suggest: j => prefill(sl, j, last, ex, opts) };
+  const step = stepOf(ex, unit());
+  return { sl, ex, meta, last, hitTop, weighted, step, suggest: j => prefill(sl, j, last, ex, { deload, step }) };
 }
 
 const activeMeso = () => S.mesos.find(m => m.id === S.activeId);
@@ -165,14 +169,17 @@ function viewToday() {
   if (s.done) h += `<div class="banner">Completed ${fmtDate(s.date)}</div>`;
 
   s.slots.forEach((sl, i) => {
-    const { ex, meta, last, hitTop, weighted, suggest } = slotCtx(m, w, d, s, i);
+    const { sl: _sl, ex, meta, last, hitTop, weighted, step, suggest } = slotCtx(m, w, d, s, i);
+    // ↑ chip: explicit "+step" for the untouched sets (no longer baked into the suggestion, F15).
+    const chip = hitTop && weighted && !s.done
+      ? `<button class="chip bump ${bumpApplied(_sl, last, step, meta.reps) ? 'on' : ''}" data-act="bump" data-i="${i}">+${step} ${unit()}</button>` : '';
     h += `<div class="card"><div class="exhead"><div><h2>${esc(ex?.name)}</h2>
       <div class="tags"><span class="tag">${esc(ex?.muscle)}</span>${meta.type === 'main' ? '<span class="tag main">Main</span>' : ''}
       ${meta.reps ? `<span class="muted">${sl.sets.length} × ${repsTxt(meta.reps, isTimed(ex, meta))}</span>` : ''}</div></div>
       </div>
       ${last ? `<div class="last">Last · ${fmtDate(last.date)}: ${fmtSets(last.sets, ex, unit())}</div>` : ''}
       ${meta.notes ? `<div class="note">${esc(meta.notes)}</div>` : ''}
-      ${hitTop ? `<div class="up">↑ Top of the range on every set last time: ${weighted ? 'add weight' : 'add weight or reps'}</div>` : ''}
+      ${hitTop ? `<div class="up"><span>↑ Top of the range on every set last time: ${weighted ? 'add weight' : 'add weight or reps'}</span>${chip}</div>` : ''}
       <div class="setgrid"><span></span><span class="h">${ex?.bw ? '+' : ''}${unit()}</span><span class="h">${isTimed(ex, meta) ? 'Sec' : 'Reps'}</span><span></span>`;
     sl.sets.forEach((st, j) => {
       const { w: pw, r: pr } = suggest(j);
@@ -332,6 +339,8 @@ function viewExercises() {
     h += `<div class="sub">${mu}</div><div class="card list">${exs.map(e => `<div class="line"><span class="grow">${esc(e.name)}</span>
       ${[['bw', 'BW', 'Bodyweight: log the added weight; blank means bodyweight only'], ['timed', 'Timed', 'Timed: log seconds']].map(([k, l, t]) =>
         `<button class="chip tog ${e[k] ? 'on' : ''}" data-act="exFlag" data-id="${e.id}" data-k="${k}" aria-pressed="${!!e[k]}" title="${t}">${l}</button>`).join('')}
+      <select class="stepsel" data-bind="step" data-id="${e.id}" aria-label="Weight step for ${esc(e.name)}">
+        <option value="">±${stepOf(null, unit())}</option>${[1, 1.25, 2, 2.5, 5].map(v => `<option value="${v}" ${+e.step === v ? 'selected' : ''}>±${v}</option>`).join('')}</select>
       ${used(e.id) ? '<span class="muted">in a plan</span>' : `<button class="icon" data-act="delExercise" data-id="${e.id}" aria-label="Delete ${esc(e.name)}">✕</button>`}</div>`).join('')}</div>`;
   });
   return h;
@@ -520,6 +529,15 @@ const A = {
     render();
   },
   // Set number: a done set can be unticked (confirm). Undone sets get Skip / Warm-up with the set sheet (2.1).
+  // ↑ chip: tap writes last+step and the bottom of the range into untouched sets; tap again clears them.
+  bump: el => {
+    const { m, s, d } = curW();
+    const c = slotCtx(m, ui.at.w, d, s, +el.dataset.i);
+    if (!c.last || !c.meta.reps) return;
+    toggleBump(c.sl, c.last, c.step, c.meta.reps);
+    save();
+    render();
+  },
   setNum: el => {
     const i = +el.dataset.i, j = +el.dataset.j;
     const st = session(activeMeso(), ui.at.w, ui.at.d)?.slots[i]?.sets[j];
@@ -672,6 +690,12 @@ function onBind(t) {
   const b = t.dataset.bind;
   if (b === 'restMain' || b === 'restAcc') { S.settings[b] = +t.value; save(); return; }
   if (b === 'progEx') { ui.progEx = t.value; render(); return; }
+  if (b === 'step') {
+    const ex = exById(t.dataset.id);
+    if (t.value === '') delete ex.step; else ex.step = +t.value;
+    save();
+    return;
+  }
   const D = ui.draft;
   if (!D) return;
   if (b === 'name') D.name = t.value;

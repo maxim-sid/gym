@@ -154,6 +154,10 @@
   const e1rm = (w, r) => w * (1 + r / 30);
   const blankSets = n => Array.from({ length: n }, () => ({ w: '', r: '', done: false }));
   const roundLoad = (w, unit) => { const step = unit === 'kg' ? 2.5 : 5; return Math.round(w / step) * step; };
+  // Nearest multiple of step, without float noise (1.25 × 3 = 3.75, not 3.7500000000000004).
+  const roundTo = (w, step) => Math.round(Math.round(w / step) * step * 1000) / 1000;
+  // Weight step for an exercise: its own (dumbbells 2, dip belt 1.25 …) or the unit default.
+  const stepOf = (ex, unit) => +ex?.step > 0 ? +ex.step : unit === 'kg' ? 2.5 : 5;
   const repsTxt = (r, timed) => (r ? (r[0] === r[1] ? `${r[0]}` : `${r[0]}–${r[1]}`) + (timed ? ' s' : '') : '');
   function parseReps(str) {
     const m = String(str).match(/(\d+)\s*(?:[-–]\s*(\d+))?/);
@@ -324,21 +328,20 @@
     return { hitTop, weighted };
   }
 
-  // Suggested values for set j (shown as placeholders, logged by a one-tap ✓). opts: {deload, hitTop, weighted, repsLo, unit}
+  // Suggested values for set j (shown as placeholders, logged by a one-tap ✓). opts: {deload, step}
   // Weight: today's nearest earlier counted set → last time's set j → last time's final set → ''.
-  //   From last time the existing rules apply: deload halves it, the ↑ hint bumps it. A 0/blank suggestion counts
-  //   as none, except that a bodyweight exercise done at BW today stays BW.
-  // Reps: last time's set j as the target (bottom of the range after the ↑ bump). If this set's weight differs from
-  //   what last time suggests, today's previous set's reps instead. No last time → today's previous → ''.
-  function prefill(sl, j, last, ex, { deload = false, hitTop = false, weighted = false, repsLo = null, unit = 'kg' } = {}) {
+  //   Last time's REAL weight (more weight is an explicit tap: applyBump); a deload week halves it, rounded to the
+  //   exercise's step. A 0/blank suggestion counts as none, except that a bodyweight exercise done at BW today stays BW.
+  // Reps: last time's set j as the target. If this set's weight differs from what last time suggests, today's
+  //   previous set's reps instead. No last time → today's previous → ''.
+  function prefill(sl, j, last, ex, { deload = false, step = 2.5 } = {}) {
     const usable = v => v != null && String(v).trim() !== '' && +v !== 0;
     const prev = sl.sets.slice(0, j).reverse().find(x => x.done && +x.r > 0) || null;
     const ls = last ? last.sets[j] || last.sets[last.sets.length - 1] : null;
-    const bump = hitTop && weighted;
     let fromLast = '';
     if (ls) {
       const base = +ls.w || 0;
-      const v = deload ? roundLoad(base / 2, unit) : hitTop && base > 0 ? roundLoad(base + (unit === 'kg' ? 2.5 : 5), unit) : base;
+      const v = deload ? roundTo(base / 2, step) : base;
       fromLast = v ? String(v) : '';
     }
     let w;
@@ -347,12 +350,39 @@
     else w = fromLast;
     let r = '';
     if (ls) {
-      r = String(bump && repsLo != null ? repsLo : ls.r);
+      r = String(ls.r);
       const typed = String(sl.sets[j]?.w ?? '').trim();
       const wNow = typed !== '' ? typed : w;
       if (prev && (+wNow || 0) !== (+fromLast || 0)) r = String(prev.r);
     } else if (prev) r = String(prev.r);
     return { w, r };
+  }
+
+  // The ↑ chip: last time's weight + step for set j, and the bottom of the rep range.
+  const bumpValues = (last, j, step, reps) => {
+    const ls = last.sets[j] || last.sets[last.sets.length - 1];
+    return { w: String(Math.round((+ls.w + step) * 1000) / 1000), r: String(reps[0]) };
+  };
+  const untouched = x => !x.done && String(x.w).trim() === '' && String(x.r).trim() === '';
+  // Is the chip's value currently in some unticked set (→ a second tap undoes it)?
+  function bumpApplied(sl, last, step, reps) {
+    return sl.sets.some((x, j) => { const b = bumpValues(last, j, step, reps); return !x.done && x.w === b.w && x.r === b.r; });
+  }
+  // Tap 1 writes the bumped weight and reps[0] into every unticked set with nothing typed (real values, so ✓ logs
+  // them and the reps rule can't flip them back). Tap 2 clears exactly those values again. Ticked/typed sets are
+  // never touched. Returns the number of sets changed.
+  function toggleBump(sl, last, step, reps) {
+    const undo = bumpApplied(sl, last, step, reps);
+    let n = 0;
+    sl.sets.forEach((x, j) => {
+      const b = bumpValues(last, j, step, reps);
+      if (undo ? !x.done && x.w === b.w && x.r === b.r : untouched(x)) {
+        x.w = undo ? '' : b.w;
+        x.r = undo ? '' : b.r;
+        n++;
+      }
+    });
+    return n;
   }
 
   function allSessions(S) {
@@ -411,6 +441,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, advance,
-    finishSession, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet };
+    finishSession, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, stepOf, bumpApplied, toggleBump, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

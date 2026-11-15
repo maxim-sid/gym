@@ -11,6 +11,7 @@
  * @property {string} [notes]
  * @property {boolean} [timed]    Log seconds instead of reps
  * @property {boolean} [bw]       Bodyweight exercise: log the added load (blank = bodyweight only)
+ * @property {number}  [step]     Weight step for the ↑ chip and deload rounding (e.g. 2 for dumbbells); default 2.5 kg / 5 lb
  *
  * @typedef {Object} PlanDay
  * @property {string} name
