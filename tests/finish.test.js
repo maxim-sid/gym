@@ -122,3 +122,17 @@ test('ticking a skipped set (while editing) clears skip', () => {
   C.tickSet(st, { w: '60', r: '6' }, 9);
   assert.deepEqual(st, { w: '60', r: '6', done: true, t: 9 });
 });
+
+test('canUndoFinish: only that exact session, still in the log and still finished', () => {
+  const m = meso();
+  const s = C.session(m, 0, 0, true);
+  s.slots[0].sets[0] = set(60, 8, true, 1);
+  assert.equal(C.canUndoFinish(m, 0, 0, s), false);   // not finished yet
+  const snap = C.finishSnapshot(m, 0, 0);
+  C.finishSession(m, 0, 0, s, 2);
+  assert.equal(C.canUndoFinish(m, 0, 0, s), true);    // allowed although done (it reverses the Finish)
+  assert.equal(C.canWrite(s, 'm:0-0', null), false);  // …while ordinary writes stay blocked
+  C.restoreFinish(m, snap);
+  assert.equal(C.canUndoFinish(m, 0, 0, s), false);   // already undone: the log holds a restored copy
+  assert.equal(C.canUndoFinish(undefined, 0, 0, s), false);
+});

@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof restoreFinish !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof canUndoFinish !== 'function') {
   document.getElementById('main').textContent = 'Update in progress — please reload.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -101,6 +101,12 @@ const editing = (m, w, d) => ui.edit === sessKey(m, w, d);
 
 // The ONE entry for every write to the open workout: refuses a finished workout unless Edit is on for it,
 // and stores the session first if it was only shown (virtual). → {m, s, w, d} | null
+// For an Undo toast: the write guard for the CURRENT workout, captured now and checked when Undo is tapped.
+function writeGuard() {
+  const m = activeMeso(), { w, d } = ui.at, key = sessKey(m, w, d);
+  return () => canWrite(m.log[`${w}-${d}`], key, ui.edit) && activeMeso() === m;
+}
+
 function curW() {
   const m = activeMeso();
   const { w, d } = ui.at;
@@ -440,9 +446,15 @@ function render() {
 // One toast at a time, at the bottom. opt {label, act}: an action button (44 px) shown for 6 s. The action lives
 // here, not in the DOM; a newer toast replaces it, so an old toast's action can never fire.
 let toastTimer, toastAction = null;
+function cancelToast() {
+  toastAction = null;
+  clearTimeout(toastTimer);
+  $('#toast').classList.remove('show');
+}
+// opt.guard() is checked again when the action is tapped (the write guard can change while the toast shows).
 function toast(msg, opt) {
   const el = $('#toast');
-  toastAction = opt?.act || null;
+  toastAction = opt?.act ? { act: opt.act, guard: opt.guard || (() => true) } : null;
   el.innerHTML = `<span>${esc(msg)}</span>${toastAction ? `<button class="tact" data-act="toastAct">${esc(opt.label || 'Undo')}</button>` : ''}`;
   el.classList.add('show');
   clearTimeout(toastTimer);
@@ -563,21 +575,20 @@ function draftFields(D) {
 const newMeso = fields => ({ id: uid(), ...fields, log: {}, pos: { w: 0, d: 0 }, complete: false, created: Date.now() });
 
 const A = {
-  tab: el => { ui.tab = el.dataset.tab; ui.edit = null; ui.sheet = null; render(); window.scrollTo(0, 0); },
-  goto: el => { ui.at = { meso: S.activeId, w: +el.dataset.w, d: +el.dataset.d }; ui.edit = null; ui.sheet = null; render(); },
+  tab: el => { ui.tab = el.dataset.tab; ui.edit = null; ui.sheet = null; cancelToast(); render(); window.scrollTo(0, 0); },
+  goto: el => { ui.at = { meso: S.activeId, w: +el.dataset.w, d: +el.dataset.d }; ui.edit = null; ui.sheet = null; cancelToast(); render(); },
   sheetCancel: () => { ui.sheet = null; render(); },
   toastAct: () => {
-    const act = toastAction;
-    toastAction = null;
-    clearTimeout(toastTimer);
-    $('#toast').classList.remove('show');
-    if (!act) return;
-    act();
+    const a = toastAction;
+    cancelToast();
+    if (!a || !a.guard()) return; // e.g. edit mode ended since: the session is read-only again
+    a.act();
     save();
     render();
   },
-  editOn: () => { ui.edit = sessKey(activeMeso(), ui.at.w, ui.at.d); render(); },
+  editOn: () => { ui.edit = sessKey(activeMeso(), ui.at.w, ui.at.d); cancelToast(); render(); },
   editOff: () => {
+    cancelToast();
     const c = curW(); // still in edit mode here, so the write is allowed
     if (c && tidySlots(c.s)) save();
     ui.edit = null;
@@ -617,7 +628,7 @@ const A = {
     const n = toggleBump(c.sl, c.last, c.step, c.meta.reps);
     save();
     render();
-    if (bumpOn(c.sl) && n) toast(`Filled ${n} set${n === 1 ? '' : 's'}`, { label: 'Undo', act: () => { if (bumpOn(c.sl)) toggleBump(c.sl, c.last, c.step, c.meta.reps); } });
+    if (bumpOn(c.sl) && n) toast(`Filled ${n} set${n === 1 ? '' : 's'}`, { label: 'Undo', act: () => { if (bumpOn(c.sl)) toggleBump(c.sl, c.last, c.step, c.meta.reps); }, guard: writeGuard() });
   },
   setNum: el => {
     const i = +el.dataset.i, j = +el.dataset.j;
@@ -630,7 +641,7 @@ const A = {
     if (!c0.s.done && a && a.w === ui.at.w && a.d === ui.at.d && a.i === i && a.j === j) stopRest();
     save();
     render();
-    toast(`Set ${j + 1} unticked`, { label: 'Undo', act: () => restoreSet(st, snap) });
+    toast(`Set ${j + 1} unticked`, { label: 'Undo', act: () => restoreSet(st, snap), guard: writeGuard() });
   },
   addSet: el => { const c = curW(); if (!c) return; c.s.slots[+el.dataset.i].sets.push(...blankSets(1)); save(); render(); },
   rmSet: el => {
@@ -680,6 +691,8 @@ const A = {
     toast(changes.length ? `Saved. Next week: ${changes.join(', ')}` : 'Workout saved 💪', {
       label: 'Undo',
       act: () => { restoreFinish(m, snap); ui.at = { meso: m.id, w, d }; },
+      // The session is finished on purpose here; this Undo reverses the Finish, so it's checked against that.
+      guard: () => canUndoFinish(m, w, d, s),
     });
   },
 

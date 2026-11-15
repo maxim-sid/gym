@@ -213,6 +213,11 @@
   // key: the session's key (e.g. "<mesoId>:w-d"); editKey: the key Edit is on for, or null.
   const canWrite = (s, key, editKey) => !s || !s.done || (editKey != null && editKey === key);
 
+  // Undo of a Finish is allowed only while that exact session is still in the log and still finished (nothing has
+  // replaced it, e.g. an import, and it wasn't undone already). It is the one write to a finished session that
+  // doesn't need Edit: it reverses the Finish itself.
+  const canUndoFinish = (m, w, d, s) => !!m && m.log[`${w}-${d}`] === s && !!s.done;
+
   // The plan editor replaces days wholesale, so it may only save over a block with nothing logged.
   // (The editor stays open across tabs, so this is re-checked at save time.)
   const canSaveEdit = m => !!m && !hasLogs(m);
@@ -530,7 +535,7 @@
   const api = { DEFAULT_EX, uid, freshState, normalize, validate, loadFrom, loadState, summarize, importInto,
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
-    totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, advance,
+    totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
     finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);
