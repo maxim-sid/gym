@@ -311,3 +311,17 @@ test('canWrite: finished needs a matching Edit key; unfinished and missing sessi
   assert.equal(C.canWrite(open, 'm:0-0', 'm:1-0'), true);
   assert.equal(C.canWrite(undefined, 'm:0-0', null), true); // virtual session: first write creates it
 });
+
+test('tidySlots: drops trailing empty unticked sets after editing, keeps ≥1, never touches done/typed', () => {
+  const e = () => ({ w: '', r: '', done: false });
+  const s = { done: true, slots: [
+    { sets: [{ w: '60', r: '8', done: true }, e(), e()] },          // → 1
+    { sets: [e(), e()] },                                            // → keeps 1
+    { sets: [] },                                                    // stays empty
+    { sets: [{ w: '60', r: '8', done: true }, e(), { w: '62', r: '', done: false }] }, // typed last: untouched
+    { sets: [e(), { w: '50', r: '5', done: true }, { w: ' ', r: '', done: false }] },  // whitespace counts as empty
+  ] };
+  assert.equal(C.tidySlots(s), 4);
+  assert.deepEqual(s.slots.map(sl => sl.sets.length), [1, 1, 0, 3, 2]);
+  assert.equal(C.tidySlots(s), 0);
+});

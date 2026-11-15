@@ -281,6 +281,21 @@
     delete st.t;
   }
 
+  // After editing a finished workout: drop trailing sets that are not done and have nothing typed, keeping at least
+  // one set per slot (a slot that already has none stays as it is). → number of sets removed.
+  function tidySlots(s) {
+    let n = 0;
+    s.slots.forEach(sl => {
+      while (sl.sets.length > 1) {
+        const x = sl.sets[sl.sets.length - 1];
+        if (x.done || String(x.w).trim() !== '' || String(x.r).trim() !== '') break;
+        sl.sets.pop();
+        n++;
+      }
+    });
+    return n;
+  }
+
   // −Set may only remove an untouched last set (not done, nothing typed), and never the only set.
   function canRemoveLastSet(sl) {
     const last = sl.sets[sl.sets.length - 1];
@@ -459,6 +474,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, advance,
-    finishSession, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, stepOf, bumpOn, toggleBump, snapSet, restoreSet, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet };
+    finishSession, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

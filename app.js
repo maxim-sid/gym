@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof restoreSet !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof tidySlots !== 'function') {
   document.getElementById('main').textContent = 'Update in progress — please reload.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -541,7 +541,12 @@ const A = {
     render();
   },
   editOn: () => { ui.edit = sessKey(activeMeso(), ui.at.w, ui.at.d); render(); },
-  editOff: () => { ui.edit = null; render(); },
+  editOff: () => {
+    const c = curW(); // still in edit mode here, so the write is allowed
+    if (c && tidySlots(c.s)) save();
+    ui.edit = null;
+    render();
+  },
   start: () => { const { m, w, d } = { m: activeMeso(), ...ui.at }; session(m, w, d, true); save(); render(); },
 
   set: el => {
@@ -816,7 +821,7 @@ $('#importFile').addEventListener('change', async e => {
     return;
   }
   S = r.state;
-  Object.assign(ui, { at: null, draft: null, progEx: null });
+  Object.assign(ui, { at: null, draft: null, progEx: null, edit: null });
   stopRest();
   render();
   toast('Backup restored');
