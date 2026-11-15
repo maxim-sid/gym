@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function') {
   document.getElementById('main').textContent = 'Update in progress — please reload.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -58,7 +58,12 @@ function setDelta(fb) {
 // KEY and the load rules (recovery copy, backup-auto) live in core.js.
 // mode 'ok': normal. 'readOnly': written by a newer version, shown but never saved.
 // 'recovery': stored data couldn't be read (or storage is unavailable) → only the recovery screen.
-const boot = loadState(localStorage, Date.now());
+// Even reading the localStorage property can throw when storage is blocked; a stand-in that throws on
+// every call lets loadState report 'storage' instead of the app going blank.
+let store;
+try { store = window.localStorage; }
+catch (err) { const fail = () => { throw err; }; store = { getItem: fail, setItem: fail, key: fail, length: 0 }; }
+const boot = loadState(store, Date.now());
 let mode = boot.mode;
 const readOnly = mode === 'readOnly';
 let S = boot.state;
@@ -66,7 +71,7 @@ const ui = { tab: 'today', at: null, draft: null, progEx: null };
 
 function save() {
   if (mode !== 'ok') return;
-  try { localStorage.setItem(KEY, JSON.stringify(S)); }
+  try { store.setItem(KEY, JSON.stringify(S)); }
   catch (e) { toast('Could not save — storage full?'); }
 }
 navigator.storage?.persist?.();
@@ -753,18 +758,27 @@ $('#importFile').addEventListener('change', async e => {
   const f = e.target.files[0];
   e.target.value = '';
   if (!f) return;
-  try {
-    const data = JSON.parse(await f.text());
-    if (data?.v !== 1 || !Array.isArray(data.mesos) || !Array.isArray(data.exercises)) throw new Error('bad file');
-    if (!confirm('Replace everything on this phone with this backup?')) return;
-    S = data;
-    Object.assign(ui, { at: null, draft: null, progEx: null });
-    save();
-    render();
-    toast('Backup restored');
-  } catch (err) {
-    toast('That file isn’t a Liftbook backup');
+  if (mode !== 'ok') return;
+  let text = null;
+  try { text = await f.text(); } catch (err) { /* unreadable file → rejected below */ }
+  const r = importInto(store, text, ({ blocks, workouts, last }) => confirm(
+    `${blocks} block${blocks === 1 ? '' : 's'}, ${workouts} workout${workouts === 1 ? '' : 's'}`
+    + `${last ? `, last on ${fmtDate(last)}` : ''}. Replace what’s on this phone?`));
+  if (!r.ok) {
+    const why = {
+      invalid: 'That file isn’t a Liftbook backup',
+      newer: 'This backup is from a newer version of Liftbook. Update the app first.',
+      storage: 'Couldn’t read this phone’s storage. Nothing was changed.',
+      backup: 'Couldn’t save a copy of your current data (storage full?). Nothing was imported.',
+      save: 'Couldn’t save the backup (storage full?). Your data is unchanged.',
+    }[r.reason];
+    if (why) toast(why);
+    return;
   }
+  S = r.state;
+  Object.assign(ui, { at: null, draft: null, progEx: null });
+  render();
+  toast('Backup restored');
 });
 
 // The timer keeps an absolute end time, so it catches up after the phone sleeps.

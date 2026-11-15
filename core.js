@@ -111,6 +111,39 @@
     return { state: r.state, mode: 'ok', raw };
   }
 
-  const api = { DEFAULT_EX, uid, freshState, normalize, validate, loadFrom, loadState, KEY, BACKUP_KEY, RECOVERY_PREFIX };
+  const BEFORE_IMPORT_KEY = 'liftbook-before-import';
+
+  // What a state holds, for the import confirm. Only finished workouts count.
+  function summarize(s) {
+    let workouts = 0, last = null;
+    s.mesos.forEach(m => Object.values(m.log).forEach(ss => {
+      if (!ss.done) return;
+      workouts++;
+      if (typeof ss.date === 'number' && (last == null || ss.date > last)) last = ss.date;
+    }));
+    return { blocks: s.mesos.length, workouts, last };
+  }
+
+  // Import a backup file through the same path as loading. confirm(summary) → boolean decides.
+  // Order: validate → confirm → copy the current stored string to BEFORE_IMPORT_KEY → write KEY.
+  // Nothing is written unless the file is valid and confirmed; KEY is not written if the copy fails.
+  // → {ok: true, state, summary} | {ok: false, reason: 'invalid'|'newer'|'cancelled'|'storage'|'backup'|'save', summary?}
+  function importInto(storage, text, confirm) {
+    const r = loadFrom(text ?? '');
+    if (r.readOnly) return { ok: false, reason: 'newer' };
+    if (!r.state) return { ok: false, reason: 'invalid' };
+    const summary = summarize(r.state);
+    if (!confirm(summary)) return { ok: false, reason: 'cancelled', summary };
+    let current;
+    try { current = storage.getItem(KEY); } catch (e) { return { ok: false, reason: 'storage', summary }; }
+    if (current != null) {
+      try { storage.setItem(BEFORE_IMPORT_KEY, current); } catch (e) { return { ok: false, reason: 'backup', summary }; }
+    }
+    try { storage.setItem(KEY, JSON.stringify(r.state)); } catch (e) { return { ok: false, reason: 'save', summary }; }
+    return { ok: true, state: r.state, summary };
+  }
+
+  const api = { DEFAULT_EX, uid, freshState, normalize, validate, loadFrom, loadState, summarize, importInto,
+    KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

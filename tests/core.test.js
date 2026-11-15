@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadFrom, normalize, validate, freshState, loadState, KEY, BACKUP_KEY, RECOVERY_PREFIX } = require('../core.js');
+const { loadFrom, normalize, validate, freshState, loadState, summarize, importInto, KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY } = require('../core.js');
 
 const RAW = fs.readFileSync(path.join(__dirname, 'fixtures', 'v1-sample.json'), 'utf8');
 const clone = x => JSON.parse(JSON.stringify(x));
@@ -198,5 +198,98 @@ test('loadState storage error: recovery with reason storage, nothing written', (
   assert.equal(r.mode, 'recovery');
   assert.equal(r.reason, 'storage');
   assert.equal(r.raw, null);
+  assert.deepEqual(st.writes, []);
+});
+
+/* ---------- summarize / importInto ---------- */
+
+test('summarize counts blocks, only done workouts, and the latest date', () => {
+  const s = JSON.parse(RAW); normalize(s);
+  // Fixture: meso1 has 3 done sessions, meso2 has 2 done + 1 unfinished.
+  assert.deepEqual(summarize(s), { blocks: 2, workouts: 5, last: 1760400000000 });
+  assert.deepEqual(summarize(freshState()), { blocks: 0, workouts: 0, last: null });
+});
+
+const CURRENT = JSON.stringify({ ...freshState(), activeId: 'current-data' });
+const yes = () => true;
+
+test('importInto fixture: normalized state, sets and dates unchanged, backup written before KEY', () => {
+  const st = fakeStorage({ [KEY]: CURRENT });
+  let seen;
+  const r = importInto(st, RAW, sum => { seen = sum; return true; });
+  assert.equal(r.ok, true);
+  assert.deepEqual(seen, { blocks: 2, workouts: 5, last: 1760400000000 });
+  assert.deepEqual(logged(r.state), logged(JSON.parse(RAW)));
+  assert.equal(r.state.settings.restAcc, 120);
+  assert.deepEqual(st.writes, [BEFORE_IMPORT_KEY, KEY]);
+  assert.equal(st.dump()[BEFORE_IMPORT_KEY], CURRENT);
+  assert.deepEqual(JSON.parse(st.dump()[KEY]), r.state);
+});
+
+test('importInto: the before-import slot is overwritten on each import', () => {
+  const st = fakeStorage({ [KEY]: CURRENT });
+  importInto(st, RAW, yes);
+  const afterFirst = st.dump()[KEY];
+  importInto(st, RAW, yes);
+  assert.equal(st.dump()[BEFORE_IMPORT_KEY], afterFirst);
+  assert.equal(Object.keys(st.dump()).filter(k => k === BEFORE_IMPORT_KEY).length, 1);
+});
+
+test('importInto: missing settings → defaults', () => {
+  const st = fakeStorage({ [KEY]: CURRENT });
+  const r = importInto(st, JSON.stringify({ v: 1, exercises: [], mesos: [] }), yes);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.state.settings, { unit: 'kg', restMain: 180, restAcc: 90 });
+});
+
+test('importInto rejects corrupt, newer, wrong-version and shape-invalid files without writing', () => {
+  const bad = JSON.parse(RAW); delete bad.mesos[0].log['0-0'].slots;
+  const cases = [
+    ['{"v":1,"mesos":[oops', 'invalid'],
+    ['', 'invalid'],
+    [null, 'invalid'],
+    ['{}', 'invalid'],
+    ['{"v":0,"exercises":[],"mesos":[]}', 'invalid'],
+    [JSON.stringify(bad), 'invalid'],
+    [JSON.stringify({ ...JSON.parse(RAW), v: 2 }), 'newer'],
+  ];
+  for (const [text, reason] of cases) {
+    const st = fakeStorage({ [KEY]: CURRENT });
+    let asked = false;
+    const r = importInto(st, text, () => { asked = true; return true; });
+    assert.deepEqual([r.ok, r.reason], [false, reason], String(text).slice(0, 40));
+    assert.equal(asked, false);
+    assert.deepEqual(st.writes, []);
+  }
+});
+
+test('importInto: cancelled confirm writes nothing', () => {
+  const st = fakeStorage({ [KEY]: CURRENT });
+  const r = importInto(st, RAW, () => false);
+  assert.deepEqual([r.ok, r.reason], [false, 'cancelled']);
+  assert.deepEqual(st.writes, []);
+});
+
+test('importInto: if the before-import copy fails, KEY is not written', () => {
+  const st = fakeStorage({ [KEY]: CURRENT });
+  const set = st.setItem;
+  st.setItem = (k, v) => { if (k === BEFORE_IMPORT_KEY) { st.writes.push(k); throw new Error('QuotaExceededError'); } set(k, v); };
+  const r = importInto(st, RAW, yes);
+  assert.deepEqual([r.ok, r.reason], [false, 'backup']);
+  assert.ok(!st.writes.includes(KEY));
+  assert.equal(st.dump()[KEY], CURRENT);
+});
+
+test('importInto on a phone with nothing stored yet: no backup needed, KEY written', () => {
+  const st = fakeStorage();
+  const r = importInto(st, RAW, yes);
+  assert.equal(r.ok, true);
+  assert.deepEqual(st.writes, [KEY]);
+});
+
+test('importInto: unreadable storage → nothing written', () => {
+  const st = fakeStorage({ [KEY]: CURRENT }, { throwOnGet: true });
+  const r = importInto(st, RAW, yes);
+  assert.deepEqual([r.ok, r.reason], [false, 'storage']);
   assert.deepEqual(st.writes, []);
 });
