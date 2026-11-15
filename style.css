@@ -90,7 +90,11 @@ input::placeholder { color: var(--ph); opacity: 1; font-weight: 400; }
 .exrow { padding: 8px 0; border-bottom: 1px solid var(--line); }
 .exrow:last-child { border-bottom: 0; }
 .exrow .row { margin-top: 0; }
-.exrow .exctl { margin-top: 6px; flex-wrap: wrap; gap: 6px; }
+.exrow .exctl { margin-top: 6px; gap: 6px; }
+.exrow .icon.del { margin-left: auto; }
+.exrow .row.between { gap: 8px; }
+.exrow .row.between select { width: auto; flex: none; min-height: 44px; padding: 8px 6px; }
+.exrow button.exname { flex: 1; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 1.3; padding: 4px; }
 .exname { text-align: left; min-height: 44px; padding: 0 4px; font-size: 16px; }
 input.exname { padding: 8px 10px; }
 .icon.off { opacity: .35; }

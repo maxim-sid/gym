@@ -360,14 +360,15 @@ function viewExercises() {
       const name = ui.renaming === e.id
         ? `<input class="grow exname" data-rename="${e.id}" value="${esc(e.name)}" enterkeyhint="done" aria-label="New name for ${esc(e.name)}">`
         : `<button class="grow exname" data-act="exRename" data-id="${e.id}" aria-label="Rename ${esc(e.name)}">${esc(e.name)}</button>`;
+      // Line 1: name (tap to rename) + muscle. Line 2: BW, Timed, weight step, delete.
       return `<div class="exrow"><div class="row between">${name}
-          <button class="icon ${canDeleteExercise(u) ? '' : 'off'}" data-act="delExercise" data-id="${e.id}" aria-label="Delete ${esc(e.name)}">✕</button></div>
+          <select class="stepsel" data-bind="exMuscle" data-id="${e.id}" aria-label="Muscle for ${esc(e.name)}">${MUSCLES.map(m => `<option ${m === e.muscle ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
         <div class="row exctl">
-          <select class="stepsel" data-bind="exMuscle" data-id="${e.id}" aria-label="Muscle for ${esc(e.name)}">${MUSCLES.map(m => `<option ${m === e.muscle ? 'selected' : ''}>${m}</option>`).join('')}</select>
           ${[['bw', 'BW', 'Bodyweight: log the added weight; blank means bodyweight only'], ['timed', 'Timed', 'Timed: log seconds']].map(([k, l, t]) =>
             `<button class="chip tog ${e[k] ? 'on' : ''}" data-act="exFlag" data-id="${e.id}" data-k="${k}" aria-pressed="${!!e[k]}" title="${t}">${l}</button>`).join('')}
           <select class="stepsel" data-bind="step" data-id="${e.id}" aria-label="Weight step for ${esc(e.name)}">
             <option value="">±${stepOf(null, unit())}</option>${[1, 1.25, 2, 2.5, 5].map(v => `<option value="${v}" ${+e.step === v ? 'selected' : ''}>±${v}</option>`).join('')}</select>
+          <button class="icon del ${canDeleteExercise(u) ? '' : 'off'}" data-act="delExercise" data-id="${e.id}" aria-label="Delete ${esc(e.name)}">✕</button>
         </div></div>`;
     }).join('')}</div>`;
   });
