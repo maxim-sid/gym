@@ -209,11 +209,6 @@
   // (The editor stays open across tabs, so this is re-checked at save time.)
   const canSaveEdit = m => !!m && !hasLogs(m);
 
-  function prevSlot(m, w, d, i) {
-    if (w === 0) return null;
-    const sl = m.log[`${w - 1}-${d}`]?.slots[i];
-    return sl && doneSets(sl).length ? sl : null;
-  }
 
   function advance(m) {
     for (let w = 0; w < totalWeeks(m); w++) {
@@ -304,6 +299,62 @@
     return { metric: 'e1rm', points };
   }
 
+  // Sets that count for history, suggestions and stats. (Warm-ups will be excluded here: 3.3.)
+  const countedSets = sl => sl.sets.filter(x => x.done && +x.r > 0);
+
+  // The last time this EXERCISE was done, in any block (replaces the slot-index prevSlot, F05).
+  // Finished sessions only, newest first, deload weeks skipped. occurrence: the k-th slot with this exercise
+  // in a session (when today's session has it twice). before: only sessions finished before this time
+  // (for viewing an old workout). → {date, sets, note, m, w, d} | null
+  function lastPerf(S, exId, { exclude = null, occurrence = 0, before = Infinity } = {}) {
+    for (const { m, w, d, s } of allSessions(S)) {
+      if (s === exclude || !(s.date < before) || isDeload(m, w)) continue;
+      const hits = s.slots.filter(sl => sl.exId === exId && countedSets(sl).length);
+      if (!hits.length) continue;
+      const sl = hits[Math.min(occurrence, hits.length - 1)];
+      return { date: s.date, sets: countedSets(sl), note: sl.note ?? '', m, w, d };
+    }
+    return null;
+  }
+
+  // ↑ hint (double progression, unchanged rule): every set last time at the top of the CURRENT slot's range.
+  function slotHints(last, reps, deload) {
+    const hitTop = !!(!deload && reps && last && last.sets.every(x => +x.r >= reps[1]));
+    const weighted = !!last && last.sets.some(x => +x.w > 0);
+    return { hitTop, weighted };
+  }
+
+  // Suggested values for set j (shown as placeholders, logged by a one-tap ✓). opts: {deload, hitTop, weighted, repsLo, unit}
+  // Weight: today's nearest earlier counted set → last time's set j → last time's final set → ''.
+  //   From last time the existing rules apply: deload halves it, the ↑ hint bumps it. A 0/blank suggestion counts
+  //   as none, except that a bodyweight exercise done at BW today stays BW.
+  // Reps: last time's set j as the target (bottom of the range after the ↑ bump). If this set's weight differs from
+  //   what last time suggests, today's previous set's reps instead. No last time → today's previous → ''.
+  function prefill(sl, j, last, ex, { deload = false, hitTop = false, weighted = false, repsLo = null, unit = 'kg' } = {}) {
+    const usable = v => v != null && String(v).trim() !== '' && +v !== 0;
+    const prev = sl.sets.slice(0, j).reverse().find(x => x.done && +x.r > 0) || null;
+    const ls = last ? last.sets[j] || last.sets[last.sets.length - 1] : null;
+    const bump = hitTop && weighted;
+    let fromLast = '';
+    if (ls) {
+      const base = +ls.w || 0;
+      const v = deload ? roundLoad(base / 2, unit) : hitTop && base > 0 ? roundLoad(base + (unit === 'kg' ? 2.5 : 5), unit) : base;
+      fromLast = v ? String(v) : '';
+    }
+    let w;
+    if (prev && usable(prev.w)) w = String(+prev.w);
+    else if (prev && ex?.bw) w = '';
+    else w = fromLast;
+    let r = '';
+    if (ls) {
+      r = String(bump && repsLo != null ? repsLo : ls.r);
+      const typed = String(sl.sets[j]?.w ?? '').trim();
+      const wNow = typed !== '' ? typed : w;
+      if (prev && (+wNow || 0) !== (+fromLast || 0)) r = String(prev.r);
+    } else if (prev) r = String(prev.r);
+    return { w, r };
+  }
+
   function allSessions(S) {
     const out = [];
     S.mesos.forEach(m => Object.entries(m.log).forEach(([k, s]) => {
@@ -359,7 +410,7 @@
   const api = { DEFAULT_EX, uid, freshState, normalize, validate, loadFrom, loadState, summarize, importInto,
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
-    totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, prevSlot, advance,
-    finishSession, allSessions, perfFor, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet };
+    totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, advance,
+    finishSession, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

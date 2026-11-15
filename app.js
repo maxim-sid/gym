@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof canRemoveLastSet !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof prefill !== 'function') {
   document.getElementById('main').textContent = 'Update in progress — please reload.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -75,6 +75,19 @@ function ensureExercise(name, muscle, { bw = false, timed = false } = {}) {
 }
 // Timed: the exercise flag decides once set (it is seeded for every exercise); the plan slot is the fallback.
 const isTimed = (ex, meta) => ex?.timed ?? !!meta?.timed;
+
+// Everything the suggestions for slot i depend on, computed once per slot (view and ✓ use the same values).
+function slotCtx(m, w, d, s, i) {
+  const sl = s.slots[i];
+  const ex = exById(sl.exId);
+  const meta = m.days[d].exercises[i];
+  const deload = isDeload(m, w);
+  const occurrence = s.slots.slice(0, i).filter(x => x.exId === sl.exId).length;
+  const last = lastPerf(S, sl.exId, { exclude: s, occurrence, before: s.done ? s.date : Infinity });
+  const { hitTop, weighted } = slotHints(last, meta.reps, deload);
+  const opts = { deload, hitTop, weighted, repsLo: meta.reps?.[0] ?? null, unit: unit() };
+  return { sl, ex, meta, last, hitTop, weighted, suggest: j => prefill(sl, j, last, ex, opts) };
+}
 
 const activeMeso = () => S.mesos.find(m => m.id === S.activeId);
 
@@ -152,25 +165,17 @@ function viewToday() {
   if (s.done) h += `<div class="banner">Completed ${fmtDate(s.date)}</div>`;
 
   s.slots.forEach((sl, i) => {
-    const ex = exById(sl.exId);
-    const meta = day.exercises[i];
-    const prev = prevSlot(m, w, d, i);
-    const prevDone = prev ? doneSets(prev) : [];
-    // Double progression: every set at the top of the range last time → suggest more weight, reps back to the bottom.
-    const hitTop = !deload && meta.reps && prevDone.length && prevDone.every(x => +x.r >= meta.reps[1]);
-    const weighted = prevDone.some(x => +x.w > 0);
+    const { ex, meta, last, hitTop, weighted, suggest } = slotCtx(m, w, d, s, i);
     h += `<div class="card"><div class="exhead"><div><h2>${esc(ex?.name)}</h2>
       <div class="tags"><span class="tag">${esc(ex?.muscle)}</span>${meta.type === 'main' ? '<span class="tag main">Main</span>' : ''}
       ${meta.reps ? `<span class="muted">${sl.sets.length} × ${repsTxt(meta.reps, isTimed(ex, meta))}</span>` : ''}</div></div>
-      ${prev ? `<div class="prev">Last week<br>${fmtSets(prevDone, ex, unit())}</div>` : ''}</div>
+      </div>
+      ${last ? `<div class="last">Last · ${fmtDate(last.date)}: ${fmtSets(last.sets, ex, unit())}</div>` : ''}
       ${meta.notes ? `<div class="note">${esc(meta.notes)}</div>` : ''}
-      ${hitTop ? `<div class="up">↑ Top of the range on every set last week: ${weighted ? 'add weight' : 'add weight or reps'}</div>` : ''}
+      ${hitTop ? `<div class="up">↑ Top of the range on every set last time: ${weighted ? 'add weight' : 'add weight or reps'}</div>` : ''}
       <div class="setgrid"><span></span><span class="h">${ex?.bw ? '+' : ''}${unit()}</span><span class="h">${isTimed(ex, meta) ? 'Sec' : 'Reps'}</span><span></span>`;
     sl.sets.forEach((st, j) => {
-      const p = prevDone[j] || prevDone[prevDone.length - 1];
-      const pw0 = !p ? '' : deload ? roundLoad(+p.w / 2, unit()) : hitTop && +p.w > 0 ? roundLoad(+p.w + (unit() === 'kg' ? 2.5 : 5), unit()) : +p.w;
-      const pw = pw0 === 0 ? '' : pw0; // a suggested 0 would be logged as a fake weight (F02)
-      const pr = !p ? '' : hitTop && weighted ? meta.reps[0] : p.r;
+      const { w: pw, r: pr } = suggest(j);
       const dc = st.done ? 'd' : '';
       h += `<button class="n" data-act="setNum" data-i="${i}" data-j="${j}" aria-label="Set ${j + 1} options">${j + 1}</button>
         <input class="${dc}" inputmode="decimal" data-i="${i}" data-j="${j}" data-f="w" value="${esc(st.w)}" placeholder="${pw}" aria-label="Set ${j + 1} weight">
@@ -490,11 +495,10 @@ const A = {
     const i = +el.dataset.i, j = +el.dataset.j;
     const st = s.slots[i].sets[j];
     if (st.done) { toast('Tap the set number to untick'); return; } // a second tap never unticks (F03)
-    const wi = $(`input[data-i="${i}"][data-j="${j}"][data-f="w"]`);
-    const ri = $(`input[data-i="${i}"][data-j="${j}"][data-f="r"]`);
-    const r = acceptSet(st, { w: wi.placeholder, r: ri.placeholder }, exById(s.slots[i].exId));
+    const c = slotCtx(m, ui.at.w, d, s, i);
+    const r = acceptSet(st, c.suggest(j), c.ex); // suggestion from the data, the same values the screen shows
     if (r.error) {
-      const el2 = r.error === 'weight' ? wi : ri;
+      const el2 = $(`input[data-i="${i}"][data-j="${j}"][data-f="${r.error === 'weight' ? 'w' : 'r'}"]`);
       el2.classList.add('bad');
       el2.focus();
       toast(r.error === 'weight' ? 'Enter the weight (or mark it BW in Exercises)' : 'Enter reps (more than 0)');

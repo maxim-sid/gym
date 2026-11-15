@@ -128,17 +128,9 @@ test('advance: first not-done session in week/day order; complete when all done'
   assert.deepEqual(m.pos, { w: 9, d: 9 }); // pos untouched when complete
 });
 
-/* ---------- prevSlot (quirk: replaced by a lookup by exercise in Phase 1.4) ---------- */
-
-test('prevSlot: same day and slot index one week back, only if it has done sets, ignores exId', () => {
-  const m = rpMeso();
-  assert.equal(C.prevSlot(m, 0, 0, 0), null);
-  m.log['0-0'] = { done: true, slots: [{ exId: 'zzz', sets: [set(50, 8)] }, { exId: 'b', sets: [set(10, 1, false)] }] };
-  assert.equal(C.prevSlot(m, 1, 0, 0), m.log['0-0'].slots[0]); // different exId, still returned
-  assert.equal(C.prevSlot(m, 1, 0, 1), null);                  // no done sets
-  assert.equal(C.prevSlot(m, 2, 0, 0), null);                  // only exactly one week back
-  assert.equal(C.prevSlot(m, 1, 1, 0), null);                  // other day
-});
+/* ---------- prevSlot: REMOVED in 1.4 (deliberate) ----------
+   It returned the same day and slot index exactly one week back, ignoring the exercise, within one block.
+   Replaced by lastPerf (lookup by exercise across all blocks); see tests/lastperf.test.js. */
 
 /* ---------- setDelta ---------- */
 
