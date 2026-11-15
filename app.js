@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof finishSession !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof hasLogs !== 'function') {
   document.getElementById('main').textContent = 'Update in progress — please reload.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -76,9 +76,10 @@ function ensureExercise(name, muscle) {
 
 const activeMeso = () => S.mesos.find(m => m.id === S.activeId);
 
-function cur() {
+// For every WRITE to the open workout: stores the session first if it was only shown (virtual).
+function curW() {
   const m = activeMeso();
-  return { m, s: session(m, ui.at.w, ui.at.d), w: ui.at.w, d: ui.at.d };
+  return { m, s: session(m, ui.at.w, ui.at.d, true), w: ui.at.w, d: ui.at.d };
 }
 
 function used(exId) {
@@ -109,8 +110,8 @@ function viewToday() {
   const tw = totalWeeks(m);
   const deload = isDeload(m, w);
   const isNext = !m.complete && m.pos.w === w && m.pos.d === d;
-  const s = session(m, w, d, isNext);
-  if (isNext) save();
+  // Shown from the plan until the first write (curW) stores it; viewing never creates or saves.
+  const s = session(m, w, d) ?? (isNext ? blankSession(m, w, d) : undefined);
 
   const rir = targetRIR(m, w);
   const effort = deload ? '<b>Deload</b> — half the sets, about half the weight'
@@ -203,7 +204,7 @@ function viewPlan() {
       <div class="bar"><i style="width:${(done / total) * 100}%"></i></div>
       <div class="row">
         ${m.id !== S.activeId ? `<button class="btn sm" data-act="activate" data-id="${m.id}">Make active</button>` : ''}
-        ${Object.keys(m.log).length ? '' : `<button class="btn sm" data-act="editMeso" data-id="${m.id}">Edit</button>`}
+        ${hasLogs(m) ? '' : `<button class="btn sm" data-act="editMeso" data-id="${m.id}">Edit</button>`}
         <button class="btn sm" data-act="copyMeso" data-id="${m.id}">Copy</button>
         <button class="btn sm danger" data-act="delMeso" data-id="${m.id}">Delete</button>
       </div></div>`;
@@ -468,7 +469,7 @@ const A = {
   start: () => { const { m, w, d } = { m: activeMeso(), ...ui.at }; session(m, w, d, true); save(); render(); },
 
   set: el => {
-    const { m, s, d } = cur();
+    const { m, s, d } = curW();
     const i = +el.dataset.i, j = +el.dataset.j;
     const st = s.slots[i].sets[j];
     if (st.done) { st.done = false; save(); render(); return; }
@@ -483,15 +484,15 @@ const A = {
     startRest(m.days[d].exercises[i].type);
     render();
   },
-  addSet: el => { const { s } = cur(); s.slots[+el.dataset.i].sets.push(...blankSets(1)); save(); render(); },
+  addSet: el => { const { s } = curW(); s.slots[+el.dataset.i].sets.push(...blankSets(1)); save(); render(); },
   rmSet: el => {
-    const sets = cur().s.slots[+el.dataset.i].sets;
+    const sets = curW().s.slots[+el.dataset.i].sets;
     if (sets.length > 1) { sets.pop(); save(); render(); }
   },
-  fb: el => { const { s } = cur(); s.slots[+el.dataset.i].fb[el.dataset.k] = +el.dataset.v; save(); render(); },
+  fb: el => { const { s } = curW(); s.slots[+el.dataset.i].fb[el.dataset.k] = +el.dataset.v; save(); render(); },
 
   finish: () => {
-    const { m, s, w, d } = cur();
+    const { m, s, w, d } = curW();
     if (s.slots.some(sl => sl.sets.some(x => !x.done)) &&
       !confirm('Some sets aren’t checked off. Finish anyway? Unchecked sets will be dropped.')) return;
     const changes = finishSession(m, w, d, s, Date.now()).changes.map(c => `${exById(c.exId)?.name} ${c.from}→${c.to}`);
@@ -547,7 +548,10 @@ const A = {
       days: D.days.map(d => ({ ...copyDay(d), name: d.name.trim() || 'Day' })),
     };
     if (D.editId) {
-      Object.assign(S.mesos.find(m => m.id === D.editId), fields);
+      const m = S.mesos.find(x => x.id === D.editId);
+      // Edit is offered only while nothing is logged; drop the empty sessions so none is out of line with the new days.
+      if (!hasLogs(m)) m.log = {};
+      Object.assign(m, fields);
     } else {
       const m = { id: uid(), ...fields, log: {}, pos: { w: 0, d: 0 }, complete: false, created: Date.now() };
       S.mesos.push(m);
@@ -627,7 +631,7 @@ document.addEventListener('click', e => {
 document.addEventListener('input', e => {
   const t = e.target;
   if (t.dataset.f) {
-    const { s } = cur();
+    const { s } = curW();
     s.slots[+t.dataset.i].sets[+t.dataset.j][t.dataset.f] = t.value.replace(',', '.');
     save();
   } else if (t.dataset.bind && t.tagName === 'INPUT' && t.type !== 'checkbox') {

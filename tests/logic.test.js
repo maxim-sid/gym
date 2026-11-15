@@ -235,3 +235,41 @@ test('perfFor: by exId across mesos, only done sets with r > 0, oldest first', (
   const pull = C.perfFor(S, 'expull01'); // w '0' sets still count (F02 quirk)
   assert.deepEqual(pull[0].sets.map(x => x.w), ['0', '0', '0']);
 });
+
+/* ---------- blankSession / hasLogs (1.1: sessions are created on the first write, not on view) ---------- */
+
+test('blankSession has exactly the shape session(create) stores, and does not store it', () => {
+  const m = rpMeso();
+  m.days[0].exercises[0].plan = [3, null, 5];
+  for (const w of [0, 1, 2, 3]) {
+    const b = C.blankSession(m, w, 0);
+    assert.equal(m.log[`${w}-0`], undefined);
+    assert.deepEqual(C.session(m, w, 0, true), b);
+  }
+  assert.deepEqual(C.blankSession(m, 2, 0).slots.map(sl => sl.sets.length), [5, 2]);
+  assert.deepEqual(C.blankSession(m, 3, 0).slots.map(sl => sl.sets.length), [2, 1]); // deload
+});
+
+test('hasLogs: false for no log and for empty created sessions; true once anything real exists', () => {
+  const m = rpMeso();
+  assert.equal(C.hasLogs(m), false);
+  const s = C.session(m, 0, 0, true);
+  C.session(m, 0, 1, true).slots[0].sets.push(...C.blankSets(1)); // +Set on an untouched session
+  assert.equal(C.hasLogs(m), false);
+  s.slots[0].sets[1].w = '60';
+  assert.equal(C.hasLogs(m), true);                                // typed weight
+  s.slots[0].sets[1].w = '';
+  s.slots[1].sets[0].r = '8';
+  assert.equal(C.hasLogs(m), true);                                // typed reps
+  s.slots[1].sets[0].r = '';
+  assert.equal(C.hasLogs(m), false);                               // cleared again
+  s.slots[0].sets[0].done = true;
+  assert.equal(C.hasLogs(m), true);                                // ticked
+  const m2 = rpMeso();
+  m2.log['0-0'] = { date: 1, done: true, slots: [] };              // finished with nothing kept
+  assert.equal(C.hasLogs(m2), true);
+  const m3 = rpMeso();
+  m3.log['0-0'] = { ...C.blankSession(m3, 0, 0), skipped: true };
+  assert.equal(C.hasLogs(m3), true);
+  assert.equal(C.hasLogs(fixture().mesos[0]), true);
+});

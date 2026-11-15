@@ -170,16 +170,24 @@
     return plan[0];
   }
 
+  // A not-yet-stored session for week w, day d: every planned slot with blank planned sets.
+  function blankSession(m, w, d) {
+    return {
+      date: null, done: false,
+      slots: m.days[d].exercises.map((sl, i) => ({ exId: sl.exId, sets: blankSets(plannedSets(m, d, i, w)), fb: {} })),
+    };
+  }
+
+  // Lookup; with create, stores blankSession() first. Views only look up; write paths create.
   function session(m, w, d, create) {
     const k = `${w}-${d}`;
-    if (!m.log[k] && create) {
-      m.log[k] = {
-        date: null, done: false,
-        slots: m.days[d].exercises.map((sl, i) => ({ exId: sl.exId, sets: blankSets(plannedSets(m, d, i, w)), fb: {} })),
-      };
-    }
+    if (!m.log[k] && create) m.log[k] = blankSession(m, w, d);
     return m.log[k];
   }
+
+  // Has anything real been logged in this meso? (Empty sessions created by a tap don't count.)
+  const hasLogs = m => Object.values(m.log).some(s => s.done || s.skipped
+    || s.slots.some(sl => sl.sets.some(x => x.done || x.w !== '' || x.r !== '')));
 
   function prevSlot(m, w, d, i) {
     if (w === 0) return null;
@@ -271,7 +279,7 @@
   const api = { DEFAULT_EX, uid, freshState, normalize, validate, loadFrom, loadState, summarize, importInto,
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
-    totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, session, prevSlot, advance,
+    totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, prevSlot, advance,
     finishSession, allSessions, perfFor };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);
