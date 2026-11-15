@@ -4,17 +4,7 @@
 
 const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs', 'Traps', 'Forearms'];
 
-const DEFAULT_EX = [
-  ['Barbell Bench Press', 'Chest'], ['Incline Dumbbell Press', 'Chest'], ['Machine Chest Press', 'Chest'], ['Cable Fly', 'Chest'], ['Dip', 'Chest'],
-  ['Pull-up', 'Back'], ['Lat Pulldown', 'Back'], ['Barbell Row', 'Back'], ['Seated Cable Row', 'Back'], ['Chest-Supported Row', 'Back'], ['Deadlift', 'Back'],
-  ['Overhead Press', 'Shoulders'], ['Dumbbell Lateral Raise', 'Shoulders'], ['Cable Lateral Raise', 'Shoulders'], ['Rear Delt Fly', 'Shoulders'],
-  ['Barbell Curl', 'Biceps'], ['Incline Dumbbell Curl', 'Biceps'], ['Hammer Curl', 'Biceps'], ['Cable Curl', 'Biceps'],
-  ['Triceps Pushdown', 'Triceps'], ['Overhead Cable Extension', 'Triceps'], ['Skull Crusher', 'Triceps'],
-  ['Back Squat', 'Quads'], ['Hack Squat', 'Quads'], ['Leg Press', 'Quads'], ['Leg Extension', 'Quads'], ['Bulgarian Split Squat', 'Quads'],
-  ['Romanian Deadlift', 'Hamstrings'], ['Lying Leg Curl', 'Hamstrings'], ['Seated Leg Curl', 'Hamstrings'],
-  ['Hip Thrust', 'Glutes'], ['Standing Calf Raise', 'Calves'], ['Seated Calf Raise', 'Calves'],
-  ['Cable Crunch', 'Abs'], ['Hanging Leg Raise', 'Abs'], ['Barbell Shrug', 'Traps'], ['Wrist Curl', 'Forearms'],
-];
+// DEFAULT_EX, uid, freshState and the load logic live in core.js.
 
 const TEMPLATES = {
   'Full Body · 3 days': [
@@ -59,34 +49,43 @@ function setDelta(fb) {
 /* ---------- state ---------- */
 
 const KEY = 'liftbook-v1';
-const uid = () => Math.random().toString(36).slice(2, 10);
 
-function freshState() {
-  return {
-    v: 1,
-    settings: { unit: 'kg', restMain: 180, restAcc: 90 },
-    exercises: DEFAULT_EX.map(([name, muscle]) => ({ id: uid(), name, muscle })),
-    mesos: [],
-    activeId: null,
-  };
+// loaded: saving is allowed only after a successful load.
+// blocked: stored data couldn't be read → only the recovery screen is shown.
+// readOnly: data written by a newer version → shown, never saved.
+let loaded = false, blocked = null, readOnly = false;
+
+// Keep one copy of unreadable data under its own key (skipped if an identical copy already exists).
+function keepRecoveryCopy(raw) {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k.startsWith('liftbook-recovery-') && localStorage.getItem(k) === raw) return true;
+    }
+    localStorage.setItem(`liftbook-recovery-${new Date().toISOString()}`, raw);
+    return true;
+  } catch (e) { return false; }
 }
 
 function loadState() {
-  try {
-    const s = JSON.parse(localStorage.getItem(KEY));
-    if (s && s.v === 1) {
-      s.settings.restMain ??= 180;
-      s.settings.restAcc ??= s.settings.rest ?? 90;
-      return s;
-    }
-  } catch (e) { /* fall through */ }
-  return freshState();
+  let raw = null;
+  try { raw = localStorage.getItem(KEY); } catch (e) { /* storage unavailable: start fresh */ }
+  const r = loadFrom(raw);
+  if (r.recovery) {
+    blocked = { raw, reason: r.recovery, copied: keepRecoveryCopy(raw) };
+    return freshState(); // placeholder, never saved while blocked
+  }
+  if (r.readOnly) { readOnly = true; return r.readOnly; }
+  if (r.changed) { try { localStorage.setItem('liftbook-backup-auto', raw); } catch (e) { /* best effort */ } }
+  loaded = true;
+  return r.state;
 }
 
 let S = loadState();
 const ui = { tab: 'today', at: null, draft: null, progEx: null };
 
 function save() {
+  if (!loaded) return;
   try { localStorage.setItem(KEY, JSON.stringify(S)); }
   catch (e) { toast('Could not save — storage full?'); }
 }
@@ -448,10 +447,20 @@ function viewSettings() {
     <button class="btn danger block" data-act="reset">Erase all data</button>`;
 }
 
+function viewRecovery() {
+  return `<section class="empty"><h1>Couldn’t load your data</h1>
+    <p>Your saved data couldn’t be read. Nothing has been deleted.</p>
+    <button class="btn primary block" data-act="downloadRaw">Download raw data</button>
+    <button class="btn danger block" data-act="startFresh">Start fresh</button></section>`;
+}
+
 const VIEWS = { today: viewToday, plan: viewPlan, progress: viewProgress, exercises: viewExercises, settings: viewSettings };
 
 function render() {
-  $('#main').innerHTML = VIEWS[ui.tab]();
+  $('#tabs').style.display = blocked ? 'none' : '';
+  if (blocked) { $('#main').innerHTML = viewRecovery(); return; }
+  $('#main').innerHTML = (readOnly ? `<div class="banner ro">Data was saved by a newer version of Liftbook. Reload to update. Changes won’t be saved.</div>` : '')
+    + VIEWS[ui.tab]();
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === ui.tab));
 }
 
@@ -514,6 +523,21 @@ function beep() {
 }
 
 /* ---------- actions ---------- */
+
+// Share sheet where available (iOS: save to Files), otherwise a download.
+async function shareFile(name, text, type) {
+  const blob = new Blob([text], { type });
+  const file = new File([blob], name, { type });
+  if (navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); return; }
+    catch (e) { if (e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
 
 function newDraft() {
   return { name: `Block ${S.mesos.length + 1}`, weeks: 4, deload: true, style: 'rp', days: [{ name: 'Day 1', exercises: [] }] };
@@ -673,19 +697,18 @@ const A = {
   delExercise: el => { S.exercises = S.exercises.filter(e => e.id !== el.dataset.id); save(); render(); },
 
   unit: el => { S.settings.unit = el.dataset.v; save(); render(); },
-  exportData: async () => {
-    const name = `liftbook-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    const blob = new Blob([JSON.stringify(S)], { type: 'application/json' });
-    const file = new File([blob], name, { type: 'application/json' });
-    if (navigator.canShare?.({ files: [file] })) {
-      try { await navigator.share({ files: [file] }); return; }
-      catch (e) { if (e.name === 'AbortError') return; }
-    }
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  exportData: () => shareFile(`liftbook-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(S), 'application/json'),
+  downloadRaw: () => shareFile(`liftbook-unreadable-${new Date().toISOString().slice(0, 10)}.txt`, blocked?.raw ?? '', 'text/plain'),
+  startFresh: () => {
+    const msg = blocked?.copied
+      ? 'Start fresh? The unreadable data stays saved on this phone as a recovery copy.'
+      : 'The unreadable data could NOT be backed up on this phone. Download it first, or it will be lost. Start fresh anyway?';
+    if (!confirm(msg)) return;
+    S = freshState();
+    blocked = null;
+    loaded = true;
+    save();
+    render();
   },
   importData: () => $('#importFile').click(),
   reset: () => {

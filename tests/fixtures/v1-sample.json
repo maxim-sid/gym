@@ -1,0 +1,69 @@
+{
+  "v": 1,
+  "settings": { "unit": "kg", "rest": 120 },
+  "exercises": [
+    { "id": "exdips01", "name": "Weighted Dips", "muscle": "Chest" },
+    { "id": "exsqat01", "name": "Squat (barbell or goblet)", "muscle": "Quads" },
+    { "id": "exhamr01", "name": "Hammer Curl", "muscle": "Biceps" },
+    { "id": "exhold01", "name": "Static Hold (mid-range curl or band/cable pull)", "muscle": "Forearms" },
+    { "id": "expull01", "name": "Weighted Pull-up", "muscle": "Back" },
+    { "id": "exrdl001", "name": "Romanian Deadlift", "muscle": "Hamstrings" }
+  ],
+  "activeId": "meso0002",
+  "mesos": [
+    {
+      "id": "meso0001", "name": "Block 1", "created": 1754000000000, "weeks": 3, "deload": true,
+      "days": [
+        { "name": "Push", "weekday": 6, "notes": "", "exercises": [
+          { "exId": "exdips01", "plan": [2, null, 3], "reps": [6, 8], "type": "main", "notes": "", "timed": false },
+          { "exId": "exhamr01", "plan": [2], "reps": [8, 10], "type": "accessory", "notes": "", "timed": false }
+        ] },
+        { "name": "Pull", "weekday": 3, "notes": "", "exercises": [
+          { "exId": "expull01", "plan": [3], "reps": [3, 5], "type": "main", "notes": "", "timed": false }
+        ] }
+      ],
+      "log": {
+        "0-0": { "date": 1754300000000, "done": true, "slots": [
+          { "exId": "exdips01", "sets": [{ "w": "15", "r": "8", "done": true }, { "w": "15", "r": "7", "done": true }], "fb": { "sore": 1, "pump": 1, "work": 1, "joint": 0 } },
+          { "exId": "exhamr01", "sets": [{ "w": "14", "r": "10", "done": true }, { "w": "14", "r": "9", "done": true }], "fb": {} }
+        ] },
+        "0-1": { "date": 1754400000000, "done": true, "slots": [
+          { "exId": "expull01", "sets": [{ "w": "0", "r": "5", "done": true }, { "w": "0", "r": "4", "done": true }, { "w": "0", "r": "4", "done": true }] }
+        ] },
+        "1-0": { "date": 1754900000000, "done": true, "slots": [
+          { "exId": "exdips01", "sets": [{ "w": "17.5", "r": "6", "done": true }, { "w": "17.5", "r": "6", "done": true }, { "w": "17.5", "r": "5", "done": true }], "fb": {} },
+          { "exId": "exhamr01", "sets": [{ "w": "16", "r": "8", "done": true }], "fb": {} }
+        ] }
+      },
+      "pos": { "w": 1, "d": 1 }, "complete": false
+    },
+    {
+      "id": "meso0002", "name": "My plan · 3 days", "created": 1760000000000, "weeks": 6, "deload": false, "style": "fixed",
+      "days": [
+        { "name": "Day 1: Dips + Squat", "weekday": 6, "notes": "", "exercises": [
+          { "exId": "exdips01", "plan": [4], "reps": [6, 8], "type": "main", "notes": "Start with a hard set of ~8 reps", "timed": false },
+          { "exId": "exsqat01", "plan": [4], "reps": [6, 8], "type": "main", "notes": "", "timed": false }
+        ] },
+        { "name": "Day 3: Volume", "weekday": 0, "notes": "Lighter day", "exercises": [
+          { "exId": "exhold01", "plan": [3], "reps": [15, 20], "type": "accessory", "notes": "Log seconds, not reps", "timed": true },
+          { "exId": "exrdl001", "plan": [3], "reps": [8, 10], "type": "main", "notes": "", "timed": false }
+        ] }
+      ],
+      "log": {
+        "0-0": { "date": 1760300000000, "done": true, "slots": [
+          { "exId": "exdips01", "sets": [{ "w": "20", "r": "8", "done": true }, { "w": "20", "r": "8", "done": true }, { "w": "20", "r": "7", "done": true }, { "w": "20", "r": "7", "done": true }], "fb": {} },
+          { "exId": "exsqat01", "sets": [{ "w": "100", "r": "8", "done": true }, { "w": "100", "r": "8", "done": true }, { "w": "100", "r": "7", "done": true }, { "w": "100", "r": "6", "done": true }], "fb": {} }
+        ] },
+        "0-1": { "date": 1760400000000, "done": true, "slots": [
+          { "exId": "exhold01", "sets": [{ "w": "", "r": "30", "done": true }, { "w": "10", "r": "25", "done": true }, { "w": "10", "r": "20", "done": true }], "fb": {} },
+          { "exId": "exrdl001", "sets": [{ "w": "80", "r": "10", "done": true }, { "w": "80", "r": "10", "done": true }, { "w": "80", "r": "9", "done": true }], "fb": {} }
+        ] },
+        "1-0": { "date": null, "done": false, "slots": [
+          { "exId": "exdips01", "sets": [{ "w": "22.5", "r": "8", "done": true }, { "w": "22.5", "r": "", "done": false }, { "w": "", "r": "", "done": false }, { "w": "", "r": "", "done": false }], "fb": {} },
+          { "exId": "exsqat01", "sets": [{ "w": "", "r": "", "done": false }, { "w": "", "r": "", "done": false }, { "w": "", "r": "", "done": false }, { "w": "", "r": "", "done": false }], "fb": {} }
+        ] }
+      },
+      "pos": { "w": 1, "d": 0 }, "complete": false
+    }
+  ]
+}
