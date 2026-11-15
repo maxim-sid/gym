@@ -283,3 +283,26 @@ test('canSaveEdit: only while nothing is logged, re-checked at save time (editor
   assert.equal(C.canSaveEdit(m), false);
   assert.equal(C.canSaveEdit(undefined), false); // block deleted
 });
+
+/* ---------- 1.3: set safety ---------- */
+
+test('tickSet stamps t; ticking a done set is a no-op; untickSet clears done and t', () => {
+  const st = { w: '', r: '', done: false };
+  assert.equal(C.tickSet(st, { w: '60', r: '8' }, 111), true);
+  assert.deepEqual(st, { w: '60', r: '8', done: true, t: 111 });
+  assert.equal(C.tickSet(st, { w: '1', r: '1' }, 222), false);  // double tap
+  assert.deepEqual(st, { w: '60', r: '8', done: true, t: 111 });
+  C.untickSet(st);
+  assert.deepEqual(st, { w: '60', r: '8', done: false });
+});
+
+test('canRemoveLastSet: only an untouched last set, never the only set', () => {
+  const sl = sets => ({ sets });
+  const e = () => ({ w: '', r: '', done: false });
+  assert.equal(C.canRemoveLastSet(sl([e(), e()])), true);
+  assert.equal(C.canRemoveLastSet(sl([e()])), false);
+  assert.equal(C.canRemoveLastSet(sl([e(), { w: '60', r: '8', done: true }])), false);
+  assert.equal(C.canRemoveLastSet(sl([e(), { w: '60', r: '', done: false }])), false);
+  assert.equal(C.canRemoveLastSet(sl([e(), { w: '', r: '8', done: false }])), false);
+  assert.equal(C.canRemoveLastSet(sl([{ w: '60', r: '8', done: true }, e()])), true);
+});

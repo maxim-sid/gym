@@ -253,6 +253,27 @@
     return { ok: true, w, r };
   }
 
+  // ✓: marks a set done with the accepted values and the tick time. A done set is left alone (no accidental untick).
+  function tickSet(st, accepted, now) {
+    if (st.done) return false;
+    st.w = accepted.w;
+    st.r = accepted.r;
+    st.done = true;
+    st.t = now;
+    return true;
+  }
+
+  function untickSet(st) {
+    st.done = false;
+    delete st.t;
+  }
+
+  // −Set may only remove an untouched last set (not done, nothing typed), and never the only set.
+  function canRemoveLastSet(sl) {
+    const last = sl.sets[sl.sets.length - 1];
+    return sl.sets.length > 1 && !last.done && last.w === '' && last.r === '';
+  }
+
   // "100×8, 100×7" · bodyweight "BW×8, +20×6" · timed "30 s, +10 kg · 25 s". Legacy weighted 0 → "8 reps".
   function fmtSets(sets, ex, unit) {
     return sets.map(x => {
@@ -336,6 +357,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, prevSlot, advance,
-    finishSession, allSessions, perfFor, BW_NAMES, acceptSet, fmtSets, chartPoints };
+    finishSession, allSessions, perfFor, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

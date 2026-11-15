@@ -39,6 +39,7 @@ h2 { font-size: 17px; margin: 0; }
 .btn.primary { background: var(--acc); border-color: var(--acc); color: var(--on-acc); }
 .btn.danger { color: var(--bad); }
 .btn.sm { padding: 7px 12px; font-size: 14px; border-radius: 10px; }
+.btn.off { opacity: .4; }
 .btn.block { display: block; width: 100%; margin: 0 0 12px; }
 .icon { width: 34px; height: 34px; flex: none; color: var(--muted); border-radius: 9px; }
 
@@ -55,9 +56,9 @@ h2 { font-size: 17px; margin: 0; }
 /* logging */
 .exhead { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; margin-bottom: 10px; }
 .prev { font-size: 12px; color: var(--muted); text-align: right; max-width: 48%; }
-.setgrid { display: grid; grid-template-columns: 22px 1fr 1fr 48px; gap: 8px; align-items: center; }
+.setgrid { display: grid; grid-template-columns: 44px 1fr 1fr 48px; gap: 8px; align-items: center; }
 .setgrid .h { font-size: 12px; color: var(--muted); text-align: center; text-transform: uppercase; letter-spacing: .05em; }
-.setgrid .n { color: var(--muted); font-weight: 600; text-align: center; }
+.setgrid .n { color: var(--muted); font-weight: 600; text-align: center; min-height: 44px; border-radius: 10px; }
 .setgrid input { text-align: center; padding: 10px 4px; font-variant-numeric: tabular-nums; }
 .setgrid input.d { background: rgba(56,217,122,.08); border-color: transparent; }
 .setgrid input.bad { border-color: var(--bad); box-shadow: 0 0 0 1px var(--bad); }

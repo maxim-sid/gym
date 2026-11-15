@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof canSaveEdit !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof canRemoveLastSet !== 'function') {
   document.getElementById('main').textContent = 'Update in progress — please reload.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -172,13 +172,13 @@ function viewToday() {
       const pw = pw0 === 0 ? '' : pw0; // a suggested 0 would be logged as a fake weight (F02)
       const pr = !p ? '' : hitTop && weighted ? meta.reps[0] : p.r;
       const dc = st.done ? 'd' : '';
-      h += `<span class="n">${j + 1}</span>
+      h += `<button class="n" data-act="setNum" data-i="${i}" data-j="${j}" aria-label="Set ${j + 1} options">${j + 1}</button>
         <input class="${dc}" inputmode="decimal" data-i="${i}" data-j="${j}" data-f="w" value="${esc(st.w)}" placeholder="${pw}" aria-label="Set ${j + 1} weight">
         <input class="${dc}" inputmode="numeric" data-i="${i}" data-j="${j}" data-f="r" value="${esc(st.r)}" placeholder="${pr}" aria-label="Set ${j + 1} reps">
         <button class="chk ${st.done ? 'on' : ''}" data-act="set" data-i="${i}" data-j="${j}" aria-label="Done">✓</button>`;
     });
     h += `</div><div class="row"><button class="btn sm" data-act="addSet" data-i="${i}">+ Set</button>
-      <button class="btn sm" data-act="rmSet" data-i="${i}">− Set</button></div>`;
+      <button class="btn sm ${canRemoveLastSet(sl) ? '' : 'off'}" data-act="rmSet" data-i="${i}" aria-disabled="${!canRemoveLastSet(sl)}">− Set</button></div>`;
     if (sl.sets.length && sl.sets.every(x => x.done) && !deload && !isFixed(m)) h += fbHtml(sl, i);
     h += '</div>';
   });
@@ -380,14 +380,15 @@ function toast(msg) {
 
 let rest = null, audio;
 
-function startRest(type) {
+// at: {w, d, i, j} of the set that started it, so unticking that set can stop it.
+function startRest(type, at) {
   stopRest();
   try {
     audio = audio || new (window.AudioContext || window.webkitAudioContext)();
     audio.resume();
   } catch (e) { /* no audio */ }
   const secs = type === 'main' ? S.settings.restMain : S.settings.restAcc;
-  rest = { end: Date.now() + secs * 1000, fired: false };
+  rest = { end: Date.now() + secs * 1000, fired: false, at };
   rest.iv = setInterval(tickRest, 250);
   tickRest();
 }
@@ -483,7 +484,7 @@ const A = {
     const { m, s, d } = curW();
     const i = +el.dataset.i, j = +el.dataset.j;
     const st = s.slots[i].sets[j];
-    if (st.done) { st.done = false; save(); render(); return; }
+    if (st.done) { toast('Tap the set number to untick'); return; } // a second tap never unticks (F03)
     const wi = $(`input[data-i="${i}"][data-j="${j}"][data-f="w"]`);
     const ri = $(`input[data-i="${i}"][data-j="${j}"][data-f="r"]`);
     const r = acceptSet(st, { w: wi.placeholder, r: ri.placeholder }, exById(s.slots[i].exId));
@@ -494,17 +495,28 @@ const A = {
       toast(r.error === 'weight' ? 'Enter the weight' : 'Enter reps (more than 0)');
       return;
     }
-    st.w = r.w;
-    st.r = r.r;
-    st.done = true;
+    tickSet(st, r, Date.now());
     save();
-    startRest(m.days[d].exercises[i].type);
+    startRest(m.days[d].exercises[i].type, { w: ui.at.w, d, i, j });
+    render();
+  },
+  // Set number: a done set can be unticked (confirm). Undone sets get Skip / Warm-up with the set sheet (2.1).
+  setNum: el => {
+    const i = +el.dataset.i, j = +el.dataset.j;
+    const st = session(activeMeso(), ui.at.w, ui.at.d)?.slots[i]?.sets[j];
+    if (!st?.done || !confirm(`Untick set ${j + 1}?`)) return;
+    untickSet(st);
+    const a = rest?.at;
+    if (a && a.w === ui.at.w && a.d === ui.at.d && a.i === i && a.j === j) stopRest();
+    save();
     render();
   },
   addSet: el => { const { s } = curW(); s.slots[+el.dataset.i].sets.push(...blankSets(1)); save(); render(); },
   rmSet: el => {
-    const sets = curW().s.slots[+el.dataset.i].sets;
-    if (sets.length > 1) { sets.pop(); save(); render(); }
+    const sl = curW().s.slots[+el.dataset.i];
+    if (canRemoveLastSet(sl)) { sl.sets.pop(); save(); render(); return; }
+    const n = sl.sets.length, last = sl.sets[n - 1];
+    if (n > 1) toast(last.done ? `Untick set ${n} first (tap its number)` : `Clear set ${n} first`);
   },
   fb: el => { const { s } = curW(); s.slots[+el.dataset.i].fb[el.dataset.k] = +el.dataset.v; save(); render(); },
 
@@ -651,8 +663,13 @@ document.addEventListener('input', e => {
   if (t.dataset.f) {
     t.classList.remove('bad');
     const { s } = curW();
-    s.slots[+t.dataset.i].sets[+t.dataset.j][t.dataset.f] = t.value.replace(',', '.');
+    const sl = s.slots[+t.dataset.i];
+    sl.sets[+t.dataset.j][t.dataset.f] = t.value.replace(',', '.');
     save();
+    // Keep −Set's state in step without a re-render (which would close the keyboard).
+    const rm = $(`[data-act="rmSet"][data-i="${t.dataset.i}"]`);
+    rm?.classList.toggle('off', !canRemoveLastSet(sl));
+    rm?.setAttribute('aria-disabled', String(!canRemoveLastSet(sl)));
   } else if (t.dataset.bind && t.tagName === 'INPUT' && t.type !== 'checkbox') {
     onBind(t);
   }
