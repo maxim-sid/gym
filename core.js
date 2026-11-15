@@ -16,7 +16,9 @@
   ];
 
   // Logged as added load (blank = bodyweight only). Seeded by exact name; editable in the Exercises tab.
-  const BW_NAMES = ['Weighted Dips', 'Weighted Pull-up', 'Chin-up (bodyweight)', 'Push-up', 'Hanging Leg Raise', 'Ab Wheel', 'Dip', 'Pull-up'];
+  // Band exercises are included: they have no weight to log.
+  const BW_NAMES = ['Weighted Dips', 'Weighted Pull-up', 'Chin-up (bodyweight)', 'Push-up', 'Hanging Leg Raise', 'Ab Wheel', 'Dip', 'Pull-up',
+    'Finger Extension (band)', 'Static Hold (mid-range curl or band/cable pull)'];
 
   const uid = () => Math.random().toString(36).slice(2, 10);
   const isObj = x => x !== null && typeof x === 'object' && !Array.isArray(x);
@@ -245,9 +247,10 @@
   // ✓ on a set: typed value, else the suggestion (prefill), else the rules below. Never invents a 0.
   // pre: {w, r} suggested values (a suggested weight of 0 counts as none). → {ok, w, r} | {error: 'weight'|'reps'}
   function acceptSet(st, pre, ex) {
-    const preW = pre?.w == null || pre.w === '' || +pre.w === 0 ? '' : String(pre.w);
-    const w = st.w !== '' ? String(st.w) : preW;
-    const r = st.r !== '' ? String(st.r) : String(pre?.r ?? '');
+    const t = v => String(v ?? '').trim(); // ' ' counts as blank
+    const preW = t(pre?.w) === '' || +pre.w === 0 ? '' : t(pre.w);
+    const w = t(st.w) !== '' ? t(st.w) : preW;
+    const r = t(st.r) !== '' ? t(st.r) : t(pre?.r);
     if (w === '' ? !ex?.bw : isNaN(+w)) return { error: 'weight' };   // blank is only OK for bodyweight exercises
     if (r === '' || !(+r > 0)) return { error: 'reps' };
     return { ok: true, w, r };

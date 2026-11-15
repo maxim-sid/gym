@@ -492,7 +492,7 @@ const A = {
       const el2 = r.error === 'weight' ? wi : ri;
       el2.classList.add('bad');
       el2.focus();
-      toast(r.error === 'weight' ? 'Enter the weight' : 'Enter reps (more than 0)');
+      toast(r.error === 'weight' ? 'Enter the weight (or mark it BW in Exercises)' : 'Enter reps (more than 0)');
       return;
     }
     tickSet(st, r, Date.now());

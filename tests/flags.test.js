@@ -144,3 +144,22 @@ test('chartPoints on the fixture: the timed Static Hold uses seconds', () => {
   const r = C.chartPoints(s, byName(s, 'Static Hold (mid-range curl or band/cable pull)'));
   assert.deepEqual([r.metric, r.points.map(p => p.y)], ['hold', [30]]);
 });
+
+/* ---------- review fix: band exercises, whitespace ---------- */
+
+test('band exercises seed to bodyweight by exact name', () => {
+  const names = ['Finger Extension (band)', 'Static Hold (mid-range curl or band/cable pull)', 'Finger Extension'];
+  const s = { v: 1, exercises: names.map((name, i) => ({ id: 'b' + i, name, muscle: 'Forearms' })), mesos: [] };
+  C.normalize(s);
+  assert.deepEqual(s.exercises.map(e => e.bw), [true, true, false]);
+  assert.equal(byName(fixture(), 'Static Hold (mid-range curl or band/cable pull)').bw, true);
+});
+
+test('acceptSet: a band exercise accepts a blank weight; whitespace counts as blank', () => {
+  const band = { bw: true, timed: false };
+  assert.deepEqual(C.acceptSet({ w: '', r: '15' }, blank, band), { ok: true, w: '', r: '15' });
+  assert.deepEqual(C.acceptSet({ w: ' ', r: ' 15 ' }, blank, band), { ok: true, w: '', r: '15' });
+  assert.deepEqual(C.acceptSet({ w: '  ', r: '8' }, blank, lift), { error: 'weight' });
+  assert.deepEqual(C.acceptSet({ w: ' ', r: '8' }, { w: '50', r: '' }, lift), { ok: true, w: '50', r: '8' });
+  assert.deepEqual(C.acceptSet({ w: '60', r: ' ' }, blank, lift), { error: 'reps' });
+});
