@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof canWrite !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof bumpOn !== 'function') {
   document.getElementById('main').textContent = 'Update in progress — please reload.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -184,7 +184,7 @@ function viewToday() {
     const { sl: _sl, ex, meta, last, hitTop, weighted, step, suggest } = slotCtx(m, w, d, s, i);
     // ↑ chip: explicit "+step" for the untouched sets (no longer baked into the suggestion, F15).
     const chip = hitTop && weighted && !ro
-      ? `<button class="chip bump ${bumpApplied(_sl, last, step, meta.reps) ? 'on' : ''}" data-act="bump" data-i="${i}">+${step} ${unit()}</button>` : '';
+      ? `<button class="chip bump ${bumpOn(_sl) ? 'on' : ''}" data-act="bump" data-i="${i}">+${step} ${unit()}</button>` : '';
     h += `<div class="card"><div class="exhead"><div><h2>${esc(ex?.name)}</h2>
       <div class="tags"><span class="tag">${esc(ex?.muscle)}</span>${meta.type === 'main' ? '<span class="tag main">Main</span>' : ''}
       ${meta.reps ? `<span class="muted">${sl.sets.length} × ${repsTxt(meta.reps, isTimed(ex, meta))}</span>` : ''}</div></div>

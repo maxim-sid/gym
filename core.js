@@ -368,23 +368,30 @@
     return { w: String(Math.round((+ls.w + step) * 1000) / 1000), r: String(reps[0]) };
   };
   const untouched = x => !x.done && String(x.w).trim() === '' && String(x.r).trim() === '';
-  // Is the chip's value currently in some unticked set (→ a second tap undoes it)?
-  function bumpApplied(sl, last, step, reps) {
-    return sl.sets.some((x, j) => { const b = bumpValues(last, j, step, reps); return !x.done && x.w === b.w && x.r === b.r; });
-  }
-  // Tap 1 writes the bumped weight and reps[0] into every unticked set with nothing typed (real values, so ✓ logs
-  // them and the reps rule can't flip them back). Tap 2 clears exactly those values again. Ticked/typed sets are
-  // never touched. Returns the number of sets changed.
+  // The chip's state lives on the session slot: sl.bump = [indexes the chip filled] while it is on (optional field,
+  // ignored by old code). It is never inferred from values, so hand-typed numbers can't switch it on.
+  const bumpOn = sl => Array.isArray(sl.bump);
+  // Tap 1 writes last+step and reps[0] into every unticked set with nothing typed (real values: ✓ logs them and the
+  // reps rule can't flip them) and remembers which. Tap 2 clears only those of them that are still unticked and
+  // unchanged, then turns the chip off. Ticked, hand-typed and edited sets are never touched. → number changed.
   function toggleBump(sl, last, step, reps) {
-    const undo = bumpApplied(sl, last, step, reps);
     let n = 0;
+    if (bumpOn(sl)) {
+      sl.bump.forEach(j => {
+        const x = sl.sets[j], b = x && bumpValues(last, j, step, reps);
+        if (x && !x.done && x.w === b.w && x.r === b.r) { x.w = ''; x.r = ''; n++; }
+      });
+      delete sl.bump;
+      return n;
+    }
+    sl.bump = [];
     sl.sets.forEach((x, j) => {
+      if (!untouched(x)) return;
       const b = bumpValues(last, j, step, reps);
-      if (undo ? !x.done && x.w === b.w && x.r === b.r : untouched(x)) {
-        x.w = undo ? '' : b.w;
-        x.r = undo ? '' : b.r;
-        n++;
-      }
+      x.w = b.w;
+      x.r = b.r;
+      sl.bump.push(j);
+      n++;
     });
     return n;
   }
@@ -445,6 +452,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, advance,
-    finishSession, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, stepOf, bumpApplied, toggleBump, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet };
+    finishSession, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, stepOf, bumpOn, toggleBump, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

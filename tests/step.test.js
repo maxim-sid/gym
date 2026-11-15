@@ -32,18 +32,40 @@ test('toggleBump: step 2 turns 14 into 16 with reps at the bottom of the range, 
   const sl = { sets: [set(14, 10), { w: '15', r: '', done: false }, blank(), blank()] };
   assert.equal(C.toggleBump(sl, L, 2, [8, 10]), 2);
   assert.deepEqual(sl.sets, [set(14, 10), { w: '15', r: '', done: false }, { w: '16', r: '8', done: false }, { w: '16', r: '8', done: false }]);
-  assert.equal(C.bumpApplied(sl, L, 2, [8, 10]), true);
+  assert.equal(C.bumpOn(sl), true);
+  assert.deepEqual(sl.bump, [2, 3]);
 });
 
-test('toggleBump again undoes exactly its own values; edited sets stay', () => {
+// Changed deliberately (review of 1.4b): the chip state is the sl.bump flag, never inferred from values.
+test('toggleBump again: off, clearing only chip values that are still unticked and unchanged', () => {
   const L = last([set(14, 10), set(14, 10), set(14, 10)]);
   const sl = { sets: [blank(), blank(), blank()] };
   C.toggleBump(sl, L, 2, [8, 10]);
   sl.sets[1].r = '9';                    // user changed one
-  sl.sets[0].done = true;                // and ticked one
+  sl.sets[0].done = true;                // and ticked one between the taps
   assert.equal(C.toggleBump(sl, L, 2, [8, 10]), 1);
   assert.deepEqual(sl.sets, [{ w: '16', r: '8', done: true }, { w: '16', r: '9', done: false }, blank()]);
-  assert.equal(C.bumpApplied(sl, L, 2, [8, 10]), false);
+  assert.equal(C.bumpOn(sl), false);
+  assert.equal('bump' in sl, false);
+});
+
+test('hand-typed values equal to the bump do not switch the chip on and are never cleared (review repro)', () => {
+  const L = last([set(60, 10), set(60, 10), set(60, 10)]);
+  const sl = { sets: [blank(), { w: '62.5', r: '8', done: false }, blank()] };
+  assert.equal(C.bumpOn(sl), false);                       // was "on" with value matching
+  assert.equal(C.toggleBump(sl, L, 2.5, [8, 10]), 2);      // tap 1 fills sets 1 and 3
+  assert.deepEqual(sl.bump, [0, 2]);
+  assert.equal(C.toggleBump(sl, L, 2.5, [8, 10]), 2);      // tap 2 clears only those
+  assert.deepEqual(sl.sets, [blank(), { w: '62.5', r: '8', done: false }, blank()]);
+});
+
+test('toggleBump undo survives −Set removing a filled set', () => {
+  const L = last([set(60, 10), set(60, 10)]);
+  const sl = { sets: [blank(), blank()] };
+  C.toggleBump(sl, L, 2.5, [8, 10]);
+  sl.sets.pop();
+  assert.equal(C.toggleBump(sl, L, 2.5, [8, 10]), 1);
+  assert.deepEqual(sl.sets, [blank()]);
 });
 
 test('toggleBump uses each set\'s own last weight (lb, step 5)', () => {
