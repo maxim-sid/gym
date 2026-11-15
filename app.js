@@ -1,5 +1,12 @@
 'use strict';
 
+// Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function') {
+  document.getElementById('main').textContent = 'Update in progress — please reload.';
+  document.getElementById('tabs').style.display = 'none';
+  throw new Error('core.js missing or outdated');
+}
+
 /* ---------- reference data ---------- */
 
 const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs', 'Traps', 'Forearms'];
@@ -48,44 +55,17 @@ function setDelta(fb) {
 
 /* ---------- state ---------- */
 
-const KEY = 'liftbook-v1';
-
-// loaded: saving is allowed only after a successful load.
-// blocked: stored data couldn't be read → only the recovery screen is shown.
-// readOnly: data written by a newer version → shown, never saved.
-let loaded = false, blocked = null, readOnly = false;
-
-// Keep one copy of unreadable data under its own key (skipped if an identical copy already exists).
-function keepRecoveryCopy(raw) {
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k.startsWith('liftbook-recovery-') && localStorage.getItem(k) === raw) return true;
-    }
-    localStorage.setItem(`liftbook-recovery-${new Date().toISOString()}`, raw);
-    return true;
-  } catch (e) { return false; }
-}
-
-function loadState() {
-  let raw = null;
-  try { raw = localStorage.getItem(KEY); } catch (e) { /* storage unavailable: start fresh */ }
-  const r = loadFrom(raw);
-  if (r.recovery) {
-    blocked = { raw, reason: r.recovery, copied: keepRecoveryCopy(raw) };
-    return freshState(); // placeholder, never saved while blocked
-  }
-  if (r.readOnly) { readOnly = true; return r.readOnly; }
-  if (r.changed) { try { localStorage.setItem('liftbook-backup-auto', raw); } catch (e) { /* best effort */ } }
-  loaded = true;
-  return r.state;
-}
-
-let S = loadState();
+// KEY and the load rules (recovery copy, backup-auto) live in core.js.
+// mode 'ok': normal. 'readOnly': written by a newer version, shown but never saved.
+// 'recovery': stored data couldn't be read (or storage is unavailable) → only the recovery screen.
+const boot = loadState(localStorage, Date.now());
+let mode = boot.mode;
+const readOnly = mode === 'readOnly';
+let S = boot.state;
 const ui = { tab: 'today', at: null, draft: null, progEx: null };
 
 function save() {
-  if (!loaded) return;
+  if (mode !== 'ok') return;
   try { localStorage.setItem(KEY, JSON.stringify(S)); }
   catch (e) { toast('Could not save — storage full?'); }
 }
@@ -192,7 +172,7 @@ function exerciseOptions() {
 
 function viewToday() {
   const m = activeMeso();
-  if (!m) {
+  if (!m || !m.days.length) {
     return `<section class="empty"><h1>No active plan</h1>
       <p>Build a mesocycle: choose exercises for each training day, then log weights and reps.
       Each week the app tells you how hard to push (RIR) and adjusts your sets based on how you recovered.</p>
@@ -441,13 +421,18 @@ function viewSettings() {
     <p class="hint" style="margin:-4px 2px 12px">Changing units only changes the label. Numbers you already logged stay the same.</p>
     <div class="card"><div class="sub">Backup</div>
       <p class="hint">Your data is stored only on this phone. Export a backup now and then (save it to Files or iCloud Drive).</p>
-      <div class="row"><button class="btn grow" data-act="exportData">Export</button><button class="btn grow" data-act="importData">Import</button></div></div>
+      <div class="row"><button class="btn grow" data-act="exportData">Export</button>${readOnly ? '' : '<button class="btn grow" data-act="importData">Import</button>'}</div></div>
     <div class="card"><div class="sub">Install on iPhone</div>
       <ol class="hint"><li>Open this page in Safari</li><li>Tap the Share button</li><li>Choose <b>Add to Home Screen</b></li></ol></div>
-    <button class="btn danger block" data-act="reset">Erase all data</button>`;
+    ${readOnly ? '' : '<button class="btn danger block" data-act="reset">Erase all data</button>'}`;
 }
 
 function viewRecovery() {
+  if (boot.reason === 'storage') {
+    return `<section class="empty"><h1>Storage unavailable</h1>
+      <p>Liftbook can’t open this phone’s storage right now (private browsing, or website data turned off). Nothing has been deleted.</p>
+      <button class="btn primary block" data-act="reload">Try again</button></section>`;
+  }
   return `<section class="empty"><h1>Couldn’t load your data</h1>
     <p>Your saved data couldn’t be read. Nothing has been deleted.</p>
     <button class="btn primary block" data-act="downloadRaw">Download raw data</button>
@@ -457,6 +442,7 @@ function viewRecovery() {
 const VIEWS = { today: viewToday, plan: viewPlan, progress: viewProgress, exercises: viewExercises, settings: viewSettings };
 
 function render() {
+  const blocked = mode === 'recovery';
   $('#tabs').style.display = blocked ? 'none' : '';
   if (blocked) { $('#main').innerHTML = viewRecovery(); return; }
   $('#main').innerHTML = (readOnly ? `<div class="banner ro">Data was saved by a newer version of Liftbook. Reload to update. Changes won’t be saved.</div>` : '')
@@ -697,16 +683,17 @@ const A = {
   delExercise: el => { S.exercises = S.exercises.filter(e => e.id !== el.dataset.id); save(); render(); },
 
   unit: el => { S.settings.unit = el.dataset.v; save(); render(); },
-  exportData: () => shareFile(`liftbook-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(S), 'application/json'),
-  downloadRaw: () => shareFile(`liftbook-unreadable-${new Date().toISOString().slice(0, 10)}.txt`, blocked?.raw ?? '', 'text/plain'),
+  // Read-only: export exactly what is stored, not the in-memory (normalized, maybe edited) copy.
+  exportData: () => shareFile(`liftbook-backup-${new Date().toISOString().slice(0, 10)}.json`, readOnly ? boot.raw : JSON.stringify(S), 'application/json'),
+  downloadRaw: () => shareFile(`liftbook-unreadable-${new Date().toISOString().slice(0, 10)}.txt`, boot.raw ?? '', 'text/plain'),
+  reload: () => location.reload(),
   startFresh: () => {
-    const msg = blocked?.copied
+    const msg = boot.copied
       ? 'Start fresh? The unreadable data stays saved on this phone as a recovery copy.'
       : 'The unreadable data could NOT be backed up on this phone. Download it first, or it will be lost. Start fresh anyway?';
     if (!confirm(msg)) return;
     S = freshState();
-    blocked = null;
-    loaded = true;
+    mode = 'ok';
     save();
     render();
   },

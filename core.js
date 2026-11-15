@@ -78,11 +78,39 @@
       try { normalize(s); } catch (e) { /* display only */ }
       return { readOnly: s };
     }
+    if (s.v !== 1) return { recovery: 'unknown' };
     const changed = normalize(s);
     if (!validate(s)) return { recovery: 'invalid' };
     return { state: s, changed };
   }
 
-  const api = { DEFAULT_EX, uid, freshState, normalize, validate, loadFrom };
+  const KEY = 'liftbook-v1', BACKUP_KEY = 'liftbook-backup-auto', RECOVERY_PREFIX = 'liftbook-recovery-';
+
+  // Keep one copy of unreadable data under its own key; skipped if an identical copy already exists.
+  function keepRecoveryCopy(storage, raw, now) {
+    try {
+      for (let i = 0; i < storage.length; i++) {
+        const k = storage.key(i);
+        if (k && k.startsWith(RECOVERY_PREFIX) && storage.getItem(k) === raw) return true;
+      }
+      storage.setItem(RECOVERY_PREFIX + new Date(now).toISOString(), raw);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // All storage decisions on load. storage: anything with getItem/setItem/key/length.
+  // Writes at most a recovery copy or the backup-auto copy; never KEY.
+  // → {state, mode: 'ok'|'readOnly'|'recovery', reason?, raw, copied?}
+  function loadState(storage, now) {
+    let raw;
+    try { raw = storage.getItem(KEY); } catch (e) { return { state: null, mode: 'recovery', reason: 'storage', raw: null, copied: false }; }
+    const r = loadFrom(raw);
+    if (r.recovery) return { state: null, mode: 'recovery', reason: r.recovery, raw, copied: keepRecoveryCopy(storage, raw, now) };
+    if (r.readOnly) return { state: r.readOnly, mode: 'readOnly', raw };
+    if (r.changed) { try { storage.setItem(BACKUP_KEY, raw); } catch (e) { /* best effort */ } }
+    return { state: r.state, mode: 'ok', raw };
+  }
+
+  const api = { DEFAULT_EX, uid, freshState, normalize, validate, loadFrom, loadState, KEY, BACKUP_KEY, RECOVERY_PREFIX };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

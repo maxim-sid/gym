@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadFrom, normalize, validate, freshState } = require('../core.js');
+const { loadFrom, normalize, validate, freshState, loadState, KEY, BACKUP_KEY, RECOVERY_PREFIX } = require('../core.js');
 
 const RAW = fs.readFileSync(path.join(__dirname, 'fixtures', 'v1-sample.json'), 'utf8');
 const clone = x => JSON.parse(JSON.stringify(x));
@@ -67,6 +67,8 @@ test('not an object or no numeric v → recovery', () => {
   assert.deepEqual(loadFrom('"hello"'), { recovery: 'unknown' });
   assert.deepEqual(loadFrom('null'), { recovery: 'unknown' });
   assert.deepEqual(loadFrom('{"v":"1"}'), { recovery: 'unknown' });
+  assert.deepEqual(loadFrom('{"v":0,"exercises":[],"mesos":[]}'), { recovery: 'unknown' });
+  assert.deepEqual(loadFrom('{"v":0.5,"exercises":[],"mesos":[]}'), { recovery: 'unknown' });
 });
 
 test('newer version → read-only, data not altered in a way that loses anything', () => {
@@ -100,4 +102,101 @@ test('validate rejects a session without slots', () => {
 test('validate rejects wrong types instead of overwriting them', () => {
   assert.deepEqual(loadFrom(JSON.stringify({ v: 1, settings: 'x', exercises: [], mesos: [] })), { recovery: 'invalid' });
   assert.deepEqual(loadFrom(JSON.stringify({ v: 1, exercises: [], mesos: {} })), { recovery: 'invalid' });
+});
+
+/* ---------- loadState(storage, now) with an in-memory storage ---------- */
+
+// Records every write so tests can assert which keys were touched.
+function fakeStorage(init = {}, { throwOnGet = false } = {}) {
+  const m = new Map(Object.entries(init));
+  const writes = [];
+  return {
+    writes,
+    get length() { return m.size; },
+    key: i => [...m.keys()][i] ?? null,
+    getItem: k => { if (throwOnGet) throw new Error('SecurityError'); return m.has(k) ? m.get(k) : null; },
+    setItem: (k, v) => { writes.push(k); m.set(k, String(v)); },
+    dump: () => Object.fromEntries(m),
+  };
+}
+const NOW = Date.UTC(2026, 10, 15, 9, 30);
+
+test('loadState ok: backup-auto equals raw when normalize changed something; KEY not written', () => {
+  const st = fakeStorage({ [KEY]: RAW });
+  const r = loadState(st, NOW);
+  assert.equal(r.mode, 'ok');
+  assert.ok(r.state.mesos.length === 2);
+  assert.deepEqual(st.writes, [BACKUP_KEY]);
+  assert.equal(st.dump()[BACKUP_KEY], RAW);
+  assert.equal(st.dump()[KEY], RAW);
+});
+
+test('loadState ok: no backup-auto when normalize changed nothing', () => {
+  const s = JSON.parse(RAW); normalize(s);
+  const st = fakeStorage({ [KEY]: JSON.stringify(s) });
+  assert.equal(loadState(st, NOW).mode, 'ok');
+  assert.deepEqual(st.writes, []);
+});
+
+test('loadState first run: fresh state, nothing written', () => {
+  const st = fakeStorage();
+  const r = loadState(st, NOW);
+  assert.equal(r.mode, 'ok');
+  assert.equal(r.state.v, 1);
+  assert.deepEqual(st.writes, []);
+});
+
+test('loadState recovery: KEY never written, copy kept and de-duplicated across loads', () => {
+  const bad = '{"v":1,"mesos":[oops';
+  const st = fakeStorage({ [KEY]: bad });
+  const r1 = loadState(st, NOW);
+  assert.equal(r1.mode, 'recovery');
+  assert.equal(r1.reason, 'corrupt');
+  assert.equal(r1.copied, true);
+  assert.equal(r1.raw, bad);
+  const r2 = loadState(st, NOW + 60000);
+  assert.equal(r2.mode, 'recovery');
+  assert.equal(r2.copied, true);
+  const copies = Object.keys(st.dump()).filter(k => k.startsWith(RECOVERY_PREFIX));
+  assert.deepEqual(copies, [RECOVERY_PREFIX + new Date(NOW).toISOString()]);
+  assert.equal(st.dump()[copies[0]], bad);
+  assert.ok(!st.writes.includes(KEY));
+  assert.equal(st.dump()[KEY], bad);
+});
+
+test('loadState recovery: a different unreadable value gets its own copy', () => {
+  const st = fakeStorage({ [KEY]: '{oops' });
+  loadState(st, NOW);
+  st.setItem(KEY, '{oops2'); st.writes.length = 0;
+  loadState(st, NOW + 1000);
+  assert.equal(Object.keys(st.dump()).filter(k => k.startsWith(RECOVERY_PREFIX)).length, 2);
+  assert.ok(!st.writes.includes(KEY));
+});
+
+test('loadState recovery: copy failure is reported, KEY still untouched', () => {
+  const st = fakeStorage({ [KEY]: '{oops' });
+  st.setItem = (k) => { st.writes.push(k); throw new Error('QuotaExceededError'); };
+  const r = loadState(st, NOW);
+  assert.equal(r.mode, 'recovery');
+  assert.equal(r.copied, false);
+  assert.ok(!st.writes.includes(KEY));
+  assert.equal(st.dump()[KEY], '{oops');
+});
+
+test('loadState readOnly (v:2): nothing written, raw returned for export', () => {
+  const raw = JSON.stringify({ ...JSON.parse(RAW), v: 2 });
+  const st = fakeStorage({ [KEY]: raw });
+  const r = loadState(st, NOW);
+  assert.equal(r.mode, 'readOnly');
+  assert.equal(r.raw, raw);
+  assert.deepEqual(st.writes, []);
+});
+
+test('loadState storage error: recovery with reason storage, nothing written', () => {
+  const st = fakeStorage({ [KEY]: RAW }, { throwOnGet: true });
+  const r = loadState(st, NOW);
+  assert.equal(r.mode, 'recovery');
+  assert.equal(r.reason, 'storage');
+  assert.equal(r.raw, null);
+  assert.deepEqual(st.writes, []);
 });
