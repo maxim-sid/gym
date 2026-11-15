@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof toggleBump !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof canWrite !== 'function') {
   document.getElementById('main').textContent = 'Update in progress — please reload.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -46,7 +46,7 @@ const boot = loadState(store, Date.now());
 let mode = boot.mode;
 const readOnly = mode === 'readOnly';
 let S = boot.state;
-const ui = { tab: 'today', at: null, draft: null, progEx: null };
+const ui = { tab: 'today', at: null, draft: null, progEx: null, edit: null }; // edit: session key while editing a finished workout (not persisted)
 
 function save() {
   if (mode !== 'ok') return;
@@ -95,10 +95,17 @@ function slotCtx(m, w, d, s, i) {
 
 const activeMeso = () => S.mesos.find(m => m.id === S.activeId);
 
-// For every WRITE to the open workout: stores the session first if it was only shown (virtual).
+const sessKey = (m, w, d) => `${m.id}:${w}-${d}`;
+// Editing a finished workout is on for this session only.
+const editing = (m, w, d) => ui.edit === sessKey(m, w, d);
+
+// The ONE entry for every write to the open workout: refuses a finished workout unless Edit is on for it,
+// and stores the session first if it was only shown (virtual). → {m, s, w, d} | null
 function curW() {
   const m = activeMeso();
-  return { m, s: session(m, ui.at.w, ui.at.d, true), w: ui.at.w, d: ui.at.d };
+  const { w, d } = ui.at;
+  if (!canWrite(session(m, w, d), sessKey(m, w, d), ui.edit)) { toast('Tap Edit to change a finished workout'); return null; }
+  return { m, s: session(m, w, d, true), w, d };
 }
 
 function used(exId) {
@@ -166,12 +173,17 @@ function viewToday() {
     return h;
   }
 
-  if (s.done) h += `<div class="banner">Completed ${fmtDate(s.date)}</div>`;
+  // Finished: read-only unless Edit is on for it. Editing never re-runs Finish/progression or touches the timer.
+  const ro = !!s.done && !editing(m, w, d);
+  if (s.done) {
+    h += `<div class="banner row between"><span>${ro ? 'Completed' : 'Editing'} ${fmtDate(s.date)}</span>
+      <button class="btn sm" data-act="${ro ? 'editOn' : 'editOff'}">${ro ? 'Edit' : 'Done editing'}</button></div>`;
+  }
 
   s.slots.forEach((sl, i) => {
     const { sl: _sl, ex, meta, last, hitTop, weighted, step, suggest } = slotCtx(m, w, d, s, i);
     // ↑ chip: explicit "+step" for the untouched sets (no longer baked into the suggestion, F15).
-    const chip = hitTop && weighted && !s.done
+    const chip = hitTop && weighted && !ro
       ? `<button class="chip bump ${bumpApplied(_sl, last, step, meta.reps) ? 'on' : ''}" data-act="bump" data-i="${i}">+${step} ${unit()}</button>` : '';
     h += `<div class="card"><div class="exhead"><div><h2>${esc(ex?.name)}</h2>
       <div class="tags"><span class="tag">${esc(ex?.muscle)}</span>${meta.type === 'main' ? '<span class="tag main">Main</span>' : ''}
@@ -184,14 +196,18 @@ function viewToday() {
     sl.sets.forEach((st, j) => {
       const { w: pw, r: pr } = suggest(j);
       const dc = st.done ? 'd' : '';
-      h += `<button class="n" data-act="setNum" data-i="${i}" data-j="${j}" aria-label="Set ${j + 1} options">${j + 1}</button>
-        <input class="${dc}" inputmode="decimal" data-i="${i}" data-j="${j}" data-f="w" value="${esc(st.w)}" placeholder="${pw}" aria-label="Set ${j + 1} weight">
-        <input class="${dc}" inputmode="numeric" data-i="${i}" data-j="${j}" data-f="r" value="${esc(st.r)}" placeholder="${pr}" aria-label="Set ${j + 1} reps">
-        <button class="chk ${st.done ? 'on' : ''}" data-act="set" data-i="${i}" data-j="${j}" aria-label="Done">✓</button>`;
+      const roA = ro ? 'readonly tabindex="-1"' : '';
+      h += (ro ? `<span class="n">${j + 1}</span>`
+        : `<button class="n" data-act="setNum" data-i="${i}" data-j="${j}" aria-label="Set ${j + 1} options">${j + 1}</button>`)
+        + `<input class="${dc}" inputmode="decimal" data-i="${i}" data-j="${j}" data-f="w" value="${esc(st.w)}" placeholder="${ro ? '' : pw}" ${roA} aria-label="Set ${j + 1} weight">
+        <input class="${dc}" inputmode="numeric" data-i="${i}" data-j="${j}" data-f="r" value="${esc(st.r)}" placeholder="${ro ? '' : pr}" ${roA} aria-label="Set ${j + 1} reps">`
+        + (ro ? `<span class="chk static ${st.done ? 'on' : ''}" aria-label="${st.done ? 'Done' : 'Not done'}">${st.done ? '✓' : ''}</span>`
+          : `<button class="chk ${st.done ? 'on' : ''}" data-act="set" data-i="${i}" data-j="${j}" aria-label="Done">✓</button>`);
     });
-    h += `</div><div class="row"><button class="btn sm" data-act="addSet" data-i="${i}">+ Set</button>
+    h += '</div>';
+    if (!ro) h += `<div class="row"><button class="btn sm" data-act="addSet" data-i="${i}">+ Set</button>
       <button class="btn sm ${canRemoveLastSet(sl) ? '' : 'off'}" data-act="rmSet" data-i="${i}" aria-disabled="${!canRemoveLastSet(sl)}">− Set</button></div>`;
-    if (sl.sets.length && sl.sets.every(x => x.done) && !deload && !isFixed(m)) h += fbHtml(sl, i);
+    if (!ro && sl.sets.length && sl.sets.every(x => x.done) && !deload && !isFixed(m)) h += fbHtml(sl, i);
     h += '</div>';
   });
 
@@ -505,12 +521,16 @@ function draftFields(D) {
 const newMeso = fields => ({ id: uid(), ...fields, log: {}, pos: { w: 0, d: 0 }, complete: false, created: Date.now() });
 
 const A = {
-  tab: el => { ui.tab = el.dataset.tab; render(); window.scrollTo(0, 0); },
-  goto: el => { ui.at = { meso: S.activeId, w: +el.dataset.w, d: +el.dataset.d }; render(); },
+  tab: el => { ui.tab = el.dataset.tab; ui.edit = null; render(); window.scrollTo(0, 0); },
+  goto: el => { ui.at = { meso: S.activeId, w: +el.dataset.w, d: +el.dataset.d }; ui.edit = null; render(); },
+  editOn: () => { ui.edit = sessKey(activeMeso(), ui.at.w, ui.at.d); render(); },
+  editOff: () => { ui.edit = null; render(); },
   start: () => { const { m, w, d } = { m: activeMeso(), ...ui.at }; session(m, w, d, true); save(); render(); },
 
   set: el => {
-    const { m, s, d } = curW();
+    const c0 = curW();
+    if (!c0) return;
+    const { m, s, d } = c0;
     const i = +el.dataset.i, j = +el.dataset.j;
     const st = s.slots[i].sets[j];
     if (st.done) { toast('Tap the set number to untick'); return; } // a second tap never unticks (F03)
@@ -525,13 +545,15 @@ const A = {
     }
     tickSet(st, r, Date.now());
     save();
-    startRest(m.days[d].exercises[i].type, { w: ui.at.w, d, i, j });
+    if (!s.done) startRest(m.days[d].exercises[i].type, { w: ui.at.w, d, i, j }); // never while editing a finished one
     render();
   },
   // Set number: a done set can be unticked (confirm). Undone sets get Skip / Warm-up with the set sheet (2.1).
   // ↑ chip: tap writes last+step and the bottom of the range into untouched sets; tap again clears them.
   bump: el => {
-    const { m, s, d } = curW();
+    const c0 = curW();
+    if (!c0) return;
+    const { m, s, d } = c0;
     const c = slotCtx(m, ui.at.w, d, s, +el.dataset.i);
     if (!c.last || !c.meta.reps) return;
     toggleBump(c.sl, c.last, c.step, c.meta.reps);
@@ -540,25 +562,31 @@ const A = {
   },
   setNum: el => {
     const i = +el.dataset.i, j = +el.dataset.j;
-    const st = session(activeMeso(), ui.at.w, ui.at.d)?.slots[i]?.sets[j];
+    const c0 = curW();
+    const st = c0?.s.slots[i]?.sets[j];
     if (!st?.done || !confirm(`Untick set ${j + 1}?`)) return;
     untickSet(st);
     const a = rest?.at;
-    if (a && a.w === ui.at.w && a.d === ui.at.d && a.i === i && a.j === j) stopRest();
+    if (!c0.s.done && a && a.w === ui.at.w && a.d === ui.at.d && a.i === i && a.j === j) stopRest();
     save();
     render();
   },
-  addSet: el => { const { s } = curW(); s.slots[+el.dataset.i].sets.push(...blankSets(1)); save(); render(); },
+  addSet: el => { const c = curW(); if (!c) return; c.s.slots[+el.dataset.i].sets.push(...blankSets(1)); save(); render(); },
   rmSet: el => {
-    const sl = curW().s.slots[+el.dataset.i];
+    const c = curW();
+    if (!c) return;
+    const sl = c.s.slots[+el.dataset.i];
     if (canRemoveLastSet(sl)) { sl.sets.pop(); save(); render(); return; }
     const n = sl.sets.length, last = sl.sets[n - 1];
     if (n > 1) toast(last.done ? `Untick set ${n} first (tap its number)` : `Clear set ${n} first`);
   },
-  fb: el => { const { s } = curW(); s.slots[+el.dataset.i].fb[el.dataset.k] = +el.dataset.v; save(); render(); },
+  // Feedback only changes sl.fb; the plan changes only inside finishSession (never re-run when editing).
+  fb: el => { const c = curW(); if (!c) return; c.s.slots[+el.dataset.i].fb[el.dataset.k] = +el.dataset.v; save(); render(); },
 
   finish: () => {
-    const { m, s, w, d } = curW();
+    const c0 = curW();
+    if (!c0 || c0.s.done) return; // Finish runs once; editing a finished workout never re-runs it
+    const { m, s, w, d } = c0;
     if (s.slots.some(sl => sl.sets.some(x => !x.done)) &&
       !confirm('Some sets aren’t checked off. Finish anyway? Unchecked sets will be dropped.')) return;
     const changes = finishSession(m, w, d, s, Date.now()).changes.map(c => `${exById(c.exId)?.name} ${c.from}→${c.to}`);
@@ -719,7 +747,9 @@ document.addEventListener('input', e => {
   const t = e.target;
   if (t.dataset.f) {
     t.classList.remove('bad');
-    const { m, s, d } = curW();
+    const c0 = curW();
+    if (!c0) return;
+    const { m, s, d } = c0;
     const i = +t.dataset.i, j = +t.dataset.j;
     const sl = s.slots[i];
     sl.sets[j][t.dataset.f] = t.value.replace(',', '.');

@@ -209,6 +209,10 @@
   const hasLogs = m => Object.values(m.log).some(s => s.done || s.skipped
     || s.slots.some(sl => sl.sets.some(x => x.done || x.w !== '' || x.r !== '')));
 
+  // Finished workouts are read-only unless the user turned on Edit for exactly that session (F18).
+  // key: the session's key (e.g. "<mesoId>:w-d"); editKey: the key Edit is on for, or null.
+  const canWrite = (s, key, editKey) => !s || !s.done || (editKey != null && editKey === key);
+
   // The plan editor replaces days wholesale, so it may only save over a block with nothing logged.
   // (The editor stays open across tabs, so this is re-checked at save time.)
   const canSaveEdit = m => !!m && !hasLogs(m);
@@ -440,7 +444,7 @@
   const api = { DEFAULT_EX, uid, freshState, normalize, validate, loadFrom, loadState, summarize, importInto,
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
-    totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, advance,
+    totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, advance,
     finishSession, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, stepOf, bumpApplied, toggleBump, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

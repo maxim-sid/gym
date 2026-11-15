@@ -298,3 +298,16 @@ test('canRemoveLastSet: only an untouched last set, never the only set', () => {
   assert.equal(C.canRemoveLastSet(sl([e(), { w: '', r: '8', done: false }])), false);
   assert.equal(C.canRemoveLastSet(sl([{ w: '60', r: '8', done: true }, e()])), true);
 });
+
+/* ---------- 1.5: finished workouts are read-only ---------- */
+
+test('canWrite: finished needs a matching Edit key; unfinished and missing sessions are always writable', () => {
+  const done = { done: true, date: 1, slots: [] }, open = { done: false, date: null, slots: [] };
+  assert.equal(C.canWrite(done, 'm:0-0', null), false);
+  assert.equal(C.canWrite(done, 'm:0-0', 'm:0-0'), true);
+  assert.equal(C.canWrite(done, 'm:0-0', 'm:1-0'), false);
+  assert.equal(C.canWrite(done, 'm:0-0', 'other:0-0'), false);
+  assert.equal(C.canWrite(open, 'm:0-0', null), true);
+  assert.equal(C.canWrite(open, 'm:0-0', 'm:1-0'), true);
+  assert.equal(C.canWrite(undefined, 'm:0-0', null), true); // virtual session: first write creates it
+});
