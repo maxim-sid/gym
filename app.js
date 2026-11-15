@@ -174,7 +174,7 @@ function viewToday() {
       <button class="btn primary block" data-act="start">Start this workout</button>`;
     if (!m.complete) {
       h += `<p class="hint">Next up: Week ${m.pos.w + 1}, ${esc(m.days[m.pos.d].name)}.
-        <button class="link" data-act="goto" data-w="${m.pos.w}" data-d="${m.pos.d}">Go there</button></p>`;
+        <button class="btn sm" data-act="goto" data-w="${m.pos.w}" data-d="${m.pos.d}">Go there</button></p>`;
     }
     return h;
   }
@@ -203,10 +203,10 @@ function viewToday() {
       const { w: pw, r: pr } = suggest(j);
       const dc = st.done ? 'd' : st.skip ? 'sk' : '';
       const roA = ro ? 'readonly tabindex="-1"' : '';
-      h += (ro ? `<span class="n">${j + 1}</span>`
-        : `<button class="n" data-act="setNum" data-i="${i}" data-j="${j}" aria-label="Set ${j + 1} options">${j + 1}</button>`)
-        + `<input class="${dc}" inputmode="decimal" data-i="${i}" data-j="${j}" data-f="w" value="${esc(st.w)}" placeholder="${ro ? '' : pw}" ${roA} aria-label="Set ${j + 1} weight">
-        <input class="${dc}" inputmode="numeric" data-i="${i}" data-j="${j}" data-f="r" value="${esc(st.r)}" placeholder="${ro ? '' : pr}" ${roA} aria-label="Set ${j + 1} reps">`
+      h += (ro ? `<span class="n ${st.done ? 'd' : ''}">${st.done ? '✓' : ''}${j + 1}</span>`
+        : `<button class="n ${st.done ? 'd' : ''}" data-act="setNum" data-i="${i}" data-j="${j}" aria-label="Set ${j + 1} options">${st.done ? '✓' : ''}${j + 1}</button>`)
+        + `<input class="${dc}" inputmode="decimal" data-i="${i}" data-j="${j}" data-f="w" value="${esc(st.w)}" placeholder="${ro ? '' : pw}" ${roA} enterkeyhint="next" aria-label="Set ${j + 1} weight">
+        <input class="${dc}" inputmode="numeric" data-i="${i}" data-j="${j}" data-f="r" value="${esc(st.r)}" placeholder="${ro ? '' : pr}" ${roA} enterkeyhint="done" aria-label="Set ${j + 1} reps">`
         + (ro ? `<span class="chk static ${st.done ? 'on' : st.skip ? 'sk' : ''}" aria-label="${st.done ? 'Done' : st.skip ? 'Skipped' : 'Not done'}">${st.done ? '✓' : st.skip ? 'skipped' : ''}</span>`
           : `<button class="chk ${st.done ? 'on' : ''}" data-act="set" data-i="${i}" data-j="${j}" aria-label="Done">✓</button>`);
     });
