@@ -203,6 +203,10 @@
   const hasLogs = m => Object.values(m.log).some(s => s.done || s.skipped
     || s.slots.some(sl => sl.sets.some(x => x.done || x.w !== '' || x.r !== '')));
 
+  // The plan editor replaces days wholesale, so it may only save over a block with nothing logged.
+  // (The editor stays open across tabs, so this is re-checked at save time.)
+  const canSaveEdit = m => !!m && !hasLogs(m);
+
   function prevSlot(m, w, d, i) {
     if (w === 0) return null;
     const sl = m.log[`${w - 1}-${d}`]?.slots[i];
@@ -331,7 +335,7 @@
   const api = { DEFAULT_EX, uid, freshState, normalize, validate, loadFrom, loadState, summarize, importInto,
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
-    totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, prevSlot, advance,
+    totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, prevSlot, advance,
     finishSession, allSessions, perfFor, BW_NAMES, acceptSet, fmtSets, chartPoints };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

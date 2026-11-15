@@ -273,3 +273,13 @@ test('hasLogs: false for no log and for empty created sessions; true once anythi
   assert.equal(C.hasLogs(m3), true);
   assert.equal(C.hasLogs(fixture().mesos[0]), true);
 });
+
+test('canSaveEdit: only while nothing is logged, re-checked at save time (editor open across tabs)', () => {
+  const m = rpMeso();
+  assert.equal(C.canSaveEdit(m), true);
+  C.session(m, 0, 0, true);                     // empty session from a tap
+  assert.equal(C.canSaveEdit(m), true);
+  m.log['0-0'].slots[0].sets[0] = { w: '60', r: '8', done: true }; // a set ticked on Today meanwhile
+  assert.equal(C.canSaveEdit(m), false);
+  assert.equal(C.canSaveEdit(undefined), false); // block deleted
+});

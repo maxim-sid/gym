@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof canSaveEdit !== 'function') {
   document.getElementById('main').textContent = 'Update in progress — please reload.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -566,8 +566,8 @@ const A = {
     };
     if (D.editId) {
       const m = S.mesos.find(x => x.id === D.editId);
-      // Edit is offered only while nothing is logged; drop the empty sessions so none is out of line with the new days.
-      if (!hasLogs(m)) m.log = {};
+      if (!canSaveEdit(m)) { toast('This block now has logged workouts — use Copy instead'); return; }
+      m.log = {}; // only empty sessions are left; drop them so none is out of line with the edited days
       Object.assign(m, fields);
     } else {
       const m = { id: uid(), ...fields, log: {}, pos: { w: 0, d: 0 }, complete: false, created: Date.now() };
