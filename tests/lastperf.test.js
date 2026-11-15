@@ -129,6 +129,44 @@ test('✓ = acceptSet(set, prefill(...)) on the data; app.js no longer reads inp
   const sug = C.prefill(sl, 1, last([set(100, 8), set(100, 7)]), lift);
   assert.deepEqual(C.acceptSet(sl.sets[1], sug, lift), { ok: true, w: '100', r: '7' });
   const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
-  assert.equal(/\.placeholder\b/.test(app), false);
+  assert.equal(/\.placeholder\b(?!\s*=[^=])/.test(app), false); // writes (the live reps hint) are fine; no reads
   assert.equal(/\bprevSlot\b/.test(app), false);
+});
+
+/* ---------- review fix: the shown reps suggestion follows a typed weight ---------- */
+
+// What the row shows after typing = what ✓ logs (the app recomputes the row's placeholder on every weight input).
+const shownThenLogged = (sl, j, L, ex, opts) => {
+  const shown = C.prefill(sl, j, L, ex, opts);
+  return { shown, logged: C.acceptSet(sl.sets[j], shown, ex) };
+};
+
+test('typing a weight updates the reps suggestion, and ✓ logs what is shown (review repro)', () => {
+  const L = last([set(60, 8), set(60, 8)]);
+  const sl = { sets: [set(60, 10), blank()] };
+  assert.deepEqual(C.prefill(sl, 1, L, lift, { step: 2.5 }), { w: '60', r: '8' }); // before typing
+  sl.sets[1].w = '65';
+  const { shown, logged } = shownThenLogged(sl, 1, L, lift, { step: 2.5 });
+  assert.equal(shown.r, '10');                                   // today's reps, since the weight changed
+  assert.deepEqual(logged, { ok: true, w: '65', r: shown.r });
+  sl.sets[1].w = '60';                                           // back to last time's weight → target again
+  assert.deepEqual(shownThenLogged(sl, 1, L, lift, { step: 2.5 }).logged, { ok: true, w: '60', r: '8' });
+});
+
+test('a typed (unticked) weight never changes LATER rows: only ticked sets feed them', () => {
+  const L = last([set(60, 8), set(60, 8), set(60, 8)]);
+  const sl = { sets: [set(60, 10), { w: '65', r: '', done: false }, blank()] };
+  assert.deepEqual(C.prefill(sl, 2, L, lift), C.prefill({ sets: [set(60, 10), blank(), blank()] }, 2, L, lift));
+});
+
+test('shown = logged also after the +step chip and when a bumped weight is retyped', () => {
+  const L = last([set(14, 10), set(14, 10), set(14, 10)]);
+  const sl = { sets: [blank(), blank(), blank()] };
+  C.toggleBump(sl, L, 2, [8, 10]);
+  for (const j of [0, 1, 2]) assert.deepEqual(shownThenLogged(sl, j, L, lift, { step: 2 }).logged, { ok: true, w: '16', r: '8' });
+  C.tickSet(sl.sets[0], { w: '16', r: '9' }, 1);
+  sl.sets[1].w = '18'; sl.sets[1].r = '';                        // user retypes the weight and clears the reps
+  const { shown, logged } = shownThenLogged(sl, 1, L, lift, { step: 2 });
+  assert.equal(shown.r, '9');
+  assert.deepEqual(logged, { ok: true, w: '18', r: '9' });
 });

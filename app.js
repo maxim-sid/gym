@@ -719,10 +719,17 @@ document.addEventListener('input', e => {
   const t = e.target;
   if (t.dataset.f) {
     t.classList.remove('bad');
-    const { s } = curW();
-    const sl = s.slots[+t.dataset.i];
-    sl.sets[+t.dataset.j][t.dataset.f] = t.value.replace(',', '.');
+    const { m, s, d } = curW();
+    const i = +t.dataset.i, j = +t.dataset.j;
+    const sl = s.slots[i];
+    sl.sets[j][t.dataset.f] = t.value.replace(',', '.');
     save();
+    // The reps suggestion for this row depends on its typed weight; keep the shown placeholder equal to what ✓
+    // would log. Other rows don't change: suggestions only follow TICKED earlier sets.
+    if (t.dataset.f === 'w') {
+      const ri = $(`input[data-i="${i}"][data-j="${j}"][data-f="r"]`);
+      if (ri) ri.placeholder = slotCtx(m, ui.at.w, d, s, i).suggest(j).r;
+    }
     // Keep −Set's state in step without a re-render (which would close the keyboard).
     const rm = $(`[data-act="rmSet"][data-i="${t.dataset.i}"]`);
     rm?.classList.toggle('off', !canRemoveLastSet(sl));
