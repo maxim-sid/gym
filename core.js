@@ -488,6 +488,33 @@
     return n;
   }
 
+  // Where an exercise is used: plans (block names), and every logged session slot with it (any set, any state).
+  // → {inPlans: [block names], loggedSets: sets done/typed/skipped, sessions: sessions with a slot for it}
+  function exerciseUse(S, exId) {
+    const inPlans = S.mesos.filter(m => m.days.some(d => d.exercises.some(sl => sl.exId === exId))).map(m => m.name);
+    let loggedSets = 0, sessions = 0;
+    S.mesos.forEach(m => Object.values(m.log).forEach(ss => {
+      const slots = ss.slots.filter(sl => sl.exId === exId);
+      if (!slots.length) return;
+      sessions++;
+      slots.forEach(sl => { loggedSets += sl.sets.filter(x => x.done || x.skip || typedSet(x)).length; });
+    }));
+    return { inPlans, loggedSets, sessions };
+  }
+  // Deletable only when nothing refers to it (deleting would orphan history: C9).
+  const canDeleteExercise = u => !u.inPlans.length && !u.sessions;
+
+  // Rename keeps the id, so history follows. Trimmed; empty or a case-insensitive duplicate is refused.
+  function renameExercise(S, exId, name) {
+    const ex = S.exercises.find(e => e.id === exId);
+    const n = String(name ?? '').trim();
+    if (!ex) return { error: 'missing' };
+    if (!n) return { error: 'empty' };
+    if (S.exercises.some(e => e.id !== exId && e.name.toLowerCase() === n.toLowerCase())) return { error: 'duplicate' };
+    ex.name = n;
+    return { ok: true };
+  }
+
   function allSessions(S) {
     const out = [];
     S.mesos.forEach(m => Object.entries(m.log).forEach(([k, s]) => {
@@ -544,6 +571,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet };
+    exerciseUse, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

@@ -87,6 +87,14 @@ input::placeholder { color: var(--ph); opacity: 1; font-weight: 400; }
 .up { color: var(--ok); font-size: 13px; font-weight: 600; margin: -2px 0 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .chip.bump { min-height: 44px; flex: none; color: var(--ok); border-color: var(--ok); font-weight: 700; }
 .chip.bump.on { background: var(--ok); border-color: var(--ok); color: #04130a; }
+.exrow { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.exrow:last-child { border-bottom: 0; }
+.exrow .row { margin-top: 0; }
+.exrow .exctl { margin-top: 6px; flex-wrap: wrap; gap: 6px; }
+.exname { text-align: left; min-height: 44px; padding: 0 4px; font-size: 16px; }
+input.exname { padding: 8px 10px; }
+.icon.off { opacity: .35; }
+.exctl select.stepsel { width: auto; min-height: 44px; padding: 8px 6px; flex: none; }
 .line select.stepsel { width: auto; min-height: 44px; padding: 8px 6px; flex: none; }
 
 /* builder */

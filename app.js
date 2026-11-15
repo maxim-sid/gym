@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof canUndoFinish !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof renameExercise !== 'function') {
   document.getElementById('main').textContent = 'Update in progress — please reload.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -46,7 +46,7 @@ const boot = loadState(store, Date.now());
 let mode = boot.mode;
 const readOnly = mode === 'readOnly';
 let S = boot.state;
-const ui = { tab: 'today', at: null, draft: null, progEx: null, edit: null, sheet: null }; // edit: session key while editing a finished workout (not persisted)
+const ui = { tab: 'today', at: null, draft: null, progEx: null, edit: null, sheet: null, renaming: null }; // edit: session key while editing a finished workout (not persisted)
 
 function save() {
   if (mode !== 'ok') return;
@@ -114,9 +114,6 @@ function curW() {
   return { m, s: session(m, w, d, true), w, d };
 }
 
-function used(exId) {
-  return S.mesos.some(m => m.days.some(d => d.exercises.some(s => s.exId === exId)));
-}
 
 function exerciseOptions() {
   return MUSCLES.map(mu => {
@@ -358,12 +355,21 @@ function viewExercises() {
   MUSCLES.forEach(mu => {
     const exs = S.exercises.filter(e => e.muscle === mu).sort(byName);
     if (!exs.length) return;
-    h += `<div class="sub">${mu}</div><div class="card list">${exs.map(e => `<div class="line"><span class="grow">${esc(e.name)}</span>
-      ${[['bw', 'BW', 'Bodyweight: log the added weight; blank means bodyweight only'], ['timed', 'Timed', 'Timed: log seconds']].map(([k, l, t]) =>
-        `<button class="chip tog ${e[k] ? 'on' : ''}" data-act="exFlag" data-id="${e.id}" data-k="${k}" aria-pressed="${!!e[k]}" title="${t}">${l}</button>`).join('')}
-      <select class="stepsel" data-bind="step" data-id="${e.id}" aria-label="Weight step for ${esc(e.name)}">
-        <option value="">±${stepOf(null, unit())}</option>${[1, 1.25, 2, 2.5, 5].map(v => `<option value="${v}" ${+e.step === v ? 'selected' : ''}>±${v}</option>`).join('')}</select>
-      ${used(e.id) ? '<span class="muted">in a plan</span>' : `<button class="icon" data-act="delExercise" data-id="${e.id}" aria-label="Delete ${esc(e.name)}">✕</button>`}</div>`).join('')}</div>`;
+    h += `<div class="sub">${mu}</div><div class="card list">${exs.map(e => {
+      const u = exerciseUse(S, e.id);
+      const name = ui.renaming === e.id
+        ? `<input class="grow exname" data-rename="${e.id}" value="${esc(e.name)}" enterkeyhint="done" aria-label="New name for ${esc(e.name)}">`
+        : `<button class="grow exname" data-act="exRename" data-id="${e.id}" aria-label="Rename ${esc(e.name)}">${esc(e.name)}</button>`;
+      return `<div class="exrow"><div class="row between">${name}
+          <button class="icon ${canDeleteExercise(u) ? '' : 'off'}" data-act="delExercise" data-id="${e.id}" aria-label="Delete ${esc(e.name)}">✕</button></div>
+        <div class="row exctl">
+          <select class="stepsel" data-bind="exMuscle" data-id="${e.id}" aria-label="Muscle for ${esc(e.name)}">${MUSCLES.map(m => `<option ${m === e.muscle ? 'selected' : ''}>${m}</option>`).join('')}</select>
+          ${[['bw', 'BW', 'Bodyweight: log the added weight; blank means bodyweight only'], ['timed', 'Timed', 'Timed: log seconds']].map(([k, l, t]) =>
+            `<button class="chip tog ${e[k] ? 'on' : ''}" data-act="exFlag" data-id="${e.id}" data-k="${k}" aria-pressed="${!!e[k]}" title="${t}">${l}</button>`).join('')}
+          <select class="stepsel" data-bind="step" data-id="${e.id}" aria-label="Weight step for ${esc(e.name)}">
+            <option value="">±${stepOf(null, unit())}</option>${[1, 1.25, 2, 2.5, 5].map(v => `<option value="${v}" ${+e.step === v ? 'selected' : ''}>±${v}</option>`).join('')}</select>
+        </div></div>`;
+    }).join('')}</div>`;
   });
   return h;
 }
@@ -577,7 +583,7 @@ function draftFields(D) {
 const newMeso = fields => ({ id: uid(), ...fields, log: {}, pos: { w: 0, d: 0 }, complete: false, created: Date.now() });
 
 const A = {
-  tab: el => { ui.tab = el.dataset.tab; ui.edit = null; ui.sheet = null; cancelToast(); render(); window.scrollTo(0, 0); },
+  tab: el => { ui.tab = el.dataset.tab; ui.edit = null; ui.sheet = null; ui.renaming = null; cancelToast(); render(); window.scrollTo(0, 0); },
   goto: el => { ui.at = { meso: S.activeId, w: +el.dataset.w, d: +el.dataset.d }; ui.edit = null; ui.sheet = null; cancelToast(); render(); },
   sheetCancel: () => { ui.sheet = null; render(); },
   toastAct: () => {
@@ -785,7 +791,28 @@ const A = {
     toast(`Added ${name}`);
   },
   exFlag: el => { const ex = exById(el.dataset.id); ex[el.dataset.k] = !ex[el.dataset.k]; save(); render(); },
-  delExercise: el => { S.exercises = S.exercises.filter(e => e.id !== el.dataset.id); save(); render(); },
+  // Delete only what nothing refers to; otherwise explain and offer Rename (history is kept by id).
+  delExercise: el => {
+    const ex = exById(el.dataset.id);
+    const u = exerciseUse(S, ex.id);
+    if (!canDeleteExercise(u)) {
+      const why = u.loggedSets ? `Has ${u.loggedSets} logged set${u.loggedSets === 1 ? '' : 's'} — can’t delete`
+        : u.inPlans.length ? `Used in ${u.inPlans.join(', ')} — can’t delete` : 'Used in a workout — can’t delete';
+      toast(why, { label: 'Rename', act: () => { ui.renaming = ex.id; } });
+      return;
+    }
+    if (!confirm(`Delete ${ex.name}?`)) return;
+    S.exercises = S.exercises.filter(e => e.id !== ex.id);
+    save();
+    render();
+  },
+  exRename: el => {
+    ui.renaming = el.dataset.id;
+    render();
+    const inp = $(`[data-rename="${el.dataset.id}"]`);
+    inp?.focus();
+    inp?.select();
+  },
 
   unit: el => { S.settings.unit = el.dataset.v; save(); render(); },
   // Read-only: export exactly what is stored, not the in-memory (normalized, maybe edited) copy.
@@ -819,6 +846,7 @@ function onBind(t) {
   const b = t.dataset.bind;
   if (b === 'restMain' || b === 'restAcc') { S.settings[b] = +t.value; save(); return; }
   if (b === 'progEx') { ui.progEx = t.value; render(); return; }
+  if (b === 'exMuscle') { exById(t.dataset.id).muscle = t.value; save(); render(); return; }
   if (b === 'step') {
     const ex = exById(t.dataset.id);
     if (t.value === '') delete ex.step; else ex.step = +t.value;
@@ -869,6 +897,25 @@ document.addEventListener('input', e => {
     onBind(t);
   }
 });
+
+// Rename: Enter or leaving the field saves, Esc cancels.
+function commitRename(inp) {
+  const id = inp.dataset.rename;
+  if (ui.renaming !== id) return; // already saved or cancelled
+  const r = renameExercise(S, id, inp.value);
+  if (r.error === 'empty') { toast('The name can’t be empty'); inp.focus(); return; }
+  if (r.error === 'duplicate') { toast('Another exercise already has that name'); inp.focus(); return; }
+  ui.renaming = null;
+  save();
+  render();
+}
+document.addEventListener('keydown', e => {
+  const t = e.target;
+  if (!t.dataset?.rename) return;
+  if (e.key === 'Enter') { e.preventDefault(); commitRename(t); }
+  else if (e.key === 'Escape') { ui.renaming = null; render(); }
+});
+document.addEventListener('focusout', e => { if (e.target.dataset?.rename) commitRename(e.target); });
 
 document.addEventListener('change', e => {
   const t = e.target;
