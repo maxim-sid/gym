@@ -420,7 +420,9 @@ function sheetFinish() {
   } else {
     h += btn('plain', 'Finish', true);
   }
-  if (rv.empty && !rv.nothing) h += `<p class="hint">${rv.empty} empty set${rv.empty === 1 ? '' : 's'} will be removed.</p>`;
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const tidy = [rv.notStarted && `${plural(rv.notStarted, 'exercise')} not started`, rv.empty && `${plural(rv.empty, 'unused set')} removed`].filter(Boolean);
+  if (tidy.length && !rv.nothing) h += `<p class="hint">${tidy.join(' · ')}</p>`;
   return h + '<button class="btn block" data-act="sheetCancel">Keep training</button>';
 }
 
@@ -661,6 +663,7 @@ const A = {
     if (!c0 || c0.s.done) return; // Finish runs once; editing a finished workout never re-runs it
     ui.sheet = { kind: 'finish' };
     render();
+    $('#sheet .sheet .btn')?.focus(); // VoiceOver starts in the sheet
   },
   finishGo: el => {
     ui.sheet = null;

@@ -23,12 +23,12 @@ const acceptFrom = s => (i, j) => C.acceptSet(s.slots[i].sets[j], { w: '', r: ''
 test('finishReview: counts, typed list, empty count, nothing', () => {
   const m = meso();
   const s = C.session(m, 0, 0, true);
-  assert.deepEqual(C.finishReview(s), { exercises: 0, of: 2, sets: 0, typed: [], empty: 5, nothing: true });
+  assert.deepEqual(C.finishReview(s), { exercises: 0, of: 2, sets: 0, typed: [], empty: 0, notStarted: 2, nothing: true });
   s.slots[0].sets[0] = set(60, 8, true, 5);
   s.slots[0].sets[1] = { w: '60', r: '', done: false };
   s.slots[1].sets[1] = { w: '', r: '12', done: false };
   s.slots[1].sets[0] = { w: '9', r: '9', done: false, skip: true };
-  assert.deepEqual(C.finishReview(s), { exercises: 1, of: 2, sets: 1, typed: [{ i: 0, j: 1 }, { i: 1, j: 1 }], empty: 1, nothing: false });
+  assert.deepEqual(C.finishReview(s), { exercises: 1, of: 2, sets: 1, typed: [{ i: 0, j: 1 }, { i: 1, j: 1 }], empty: 1, notStarted: 0, nothing: false });
 });
 
 test('Log them: typed-unticked sets become done (with t); an invalid one changes nothing', () => {
@@ -135,4 +135,33 @@ test('canUndoFinish: only that exact session, still in the log and still finishe
   C.restoreFinish(m, snap);
   assert.equal(C.canUndoFinish(m, 0, 0, s), false);   // already undone: the log holds a restored copy
   assert.equal(C.canUndoFinish(undefined, 0, 0, s), false);
+});
+
+// Changed deliberately (review of 1.6): empty sets are counted only for started exercises; unstarted ones apart.
+test('finishReview: unstarted exercises are counted apart from unused sets of started ones', () => {
+  const m = meso();
+  m.days[0].exercises.push({ exId: 'x', plan: [3], reps: [8, 10], type: 'accessory' });
+  const s = C.session(m, 0, 0, true);               // slots: 3, 2, 3 blank sets
+  s.slots[0].sets[0] = set(60, 8, true, 1);          // started: 2 unused sets
+  s.slots[1].sets[0] = { w: '', r: '', done: false, skip: true }; // skipped only: started, 1 unused set
+  const rv = C.finishReview(s);
+  assert.deepEqual([rv.notStarted, rv.empty, rv.exercises, rv.of], [1, 3, 1, 3]);
+});
+
+test('restoreFinish keeps a next-week session created after Finish once something is logged in it', () => {
+  const m = meso();
+  const s = C.session(m, 0, 0, true);
+  s.slots[0].sets[0] = set(60, 8, true, 1);
+  const snap = C.finishSnapshot(m, 0, 0);
+  C.finishSession(m, 0, 0, s, 3);
+  const nxt = C.session(m, 1, 0, true);
+  nxt.slots[0].sets[0].w = '62.5';                   // typed in next week's workout
+  C.restoreFinish(m, snap);
+  assert.equal(m.log['1-0'], nxt);
+  assert.equal(m.log['0-0'].done, false);
+  nxt.slots[0].sets[0].w = '';
+  const snap2 = C.finishSnapshot(m, 2, 0);           // no week-3 session before
+  m.log['3-0'] = C.blankSession(m, 3, 0);            // blank one created after → removed
+  C.restoreFinish(m, snap2);
+  assert.equal(m.log['3-0'], undefined);
 });

@@ -232,6 +232,7 @@
     m.complete = true;
   }
 
+  const hasContent = ss => !!ss && (ss.done || ss.slots.some(sl => sl.sets.some(x => x.done || typedSet(x))));
   const typedSet = x => String(x.w ?? '').trim() !== '' || String(x.r ?? '').trim() !== '';
 
   // The data part of "Finish workout". changes: [{exId, from, to}] for next week's set counts (rp only).
@@ -261,11 +262,15 @@
   }
 
   // What the Finish sheet shows. typed: unticked, unskipped sets with something typed ({i, j}).
+  // empty: empty sets of STARTED exercises (any set done, typed or skipped); notStarted: exercises with none of
+  // that. (Finish removes every empty set either way; this only splits the wording.)
   function finishReview(s) {
     const typed = [];
-    let sets = 0, empty = 0, exercises = 0;
+    let sets = 0, empty = 0, exercises = 0, notStarted = 0;
     s.slots.forEach((sl, i) => {
       if (sl.sets.some(x => x.done)) exercises++;
+      const started = sl.sets.some(x => x.done || x.skip || typedSet(x));
+      if (!started) { notStarted++; return; }
       sl.sets.forEach((x, j) => {
         if (x.done) sets++;
         else if (x.skip) return;
@@ -273,7 +278,7 @@
         else empty++;
       });
     });
-    return { exercises, of: s.slots.length, sets, typed, empty, nothing: !sets && !typed.length };
+    return { exercises, of: s.slots.length, sets, typed, empty, notStarted, nothing: !sets && !typed.length };
   }
 
   // "Log them" / "Skip them" for the typed sets. accept(i, j) → acceptSet result. All are checked first, so
@@ -302,7 +307,10 @@
   function restoreFinish(m, snap) {
     const put = (k, v) => { if (v === undefined) delete m.log[k]; else m.log[k] = clone(v); };
     put(`${snap.w}-${snap.d}`, snap.cur);
-    put(`${snap.w + 1}-${snap.d}`, snap.next);
+    // A next-week session that didn't exist before Finish is removed only while it's still blank;
+    // anything logged in it since is kept.
+    const nk = `${snap.w + 1}-${snap.d}`;
+    if (snap.next !== undefined || !hasContent(m.log[nk])) put(nk, snap.next);
     m.days[snap.d].exercises.forEach((e, i) => { if (snap.plans[i]) e.plan = clone(snap.plans[i]); });
     m.pos = clone(snap.pos);
     m.complete = snap.complete;
