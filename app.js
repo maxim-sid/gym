@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof hasContent !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function') {
   document.getElementById('main').textContent = 'Update in progress — please reload.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -372,7 +372,7 @@ function viewExercises() {
             `<button class="chip tog ${e[k] ? 'on' : ''}" data-act="exFlag" data-id="${e.id}" data-k="${k}" aria-pressed="${!!e[k]}" title="${t}">${l}</button>`).join('')}
           <select class="stepsel" data-bind="step" data-id="${e.id}" aria-label="Weight step for ${esc(e.name)}">
             <option value="">±${stepOf(null, unit())}</option>${[1, 1.25, 2, 2.5, 5].map(v => `<option value="${v}" ${+e.step === v ? 'selected' : ''}>±${v}</option>`).join('')}</select>
-          <button class="icon del ${canDeleteExercise(u) ? '' : 'off'}" data-act="delExercise" data-id="${e.id}" aria-label="Delete ${esc(e.name)}">✕</button>
+          <button class="icon del ${canDeleteExercise(u) && !draftUses(ui.draft, e.id) ? '' : 'off'}" data-act="delExercise" data-id="${e.id}" aria-label="Delete ${esc(e.name)}">✕</button>
         </div></div>`;
     }).join('')}</div>`;
   });
@@ -467,7 +467,7 @@ function cancelToast() {
 // opt.guard() is checked again when the action is tapped (the write guard can change while the toast shows).
 function toast(msg, opt) {
   const el = $('#toast');
-  toastAction = opt?.act ? { act: opt.act, guard: opt.guard || (() => true) } : null;
+  toastAction = opt?.act ? { act: opt.act, guard: opt.guard || (() => true), then: opt.then } : null;
   el.innerHTML = `<span>${esc(msg)}</span>${toastAction ? `<button class="tact" data-act="toastAct">${esc(opt.label || 'Undo')}</button>` : ''}`;
   el.classList.add('show');
   clearTimeout(toastTimer);
@@ -598,6 +598,7 @@ const A = {
     a.act();
     save();
     render();
+    a.then?.(); // after the re-render, still inside the tap (iOS only opens the keyboard on a user gesture)
   },
   editOn: () => { ui.edit = sessKey(activeMeso(), ui.at.w, ui.at.d); cancelToast(); render(); },
   editOff: () => {
@@ -800,10 +801,13 @@ const A = {
   delExercise: el => {
     const ex = exById(el.dataset.id);
     const u = exerciseUse(S, ex.id);
-    if (!canDeleteExercise(u)) {
+    const inDraft = draftUses(ui.draft, ex.id);
+    if (!canDeleteExercise(u) || inDraft) {
       const why = u.loggedSets ? `Has ${u.loggedSets} logged set${u.loggedSets === 1 ? '' : 's'} — can’t delete`
-        : u.inPlans.length ? `Used in ${u.inPlans.join(', ')} — can’t delete` : 'Used in a workout — can’t delete';
-      toast(why, { label: 'Rename', act: () => { ui.renaming = ex.id; } });
+        : u.inPlans.length ? `Used in ${u.inPlans.join(', ')} — can’t delete`
+          : inDraft ? 'Used in the plan you’re editing — can’t delete' : 'Used in a workout — can’t delete';
+      const focusName = () => { const inp = $(`[data-rename="${ex.id}"]`); inp?.focus(); inp?.select(); };
+      toast(why, { label: 'Rename', act: () => { ui.renaming = ex.id; }, then: focusName });
       return;
     }
     if (!confirm(`Delete ${ex.name}?`)) return;
@@ -904,12 +908,18 @@ document.addEventListener('input', e => {
 });
 
 // Rename: Enter or leaving the field saves, Esc cancels.
-function commitRename(inp) {
+// Enter with an invalid name keeps the field open; leaving the field (blur) with one cancels the rename —
+// iOS has no Esc, so blur must always be a way out.
+function commitRename(inp, fromBlur) {
   const id = inp.dataset.rename;
   if (ui.renaming !== id) return; // already saved or cancelled
   const r = renameExercise(S, id, inp.value);
-  if (r.error === 'empty') { toast('The name can’t be empty'); inp.focus(); return; }
-  if (r.error === 'duplicate') { toast('Another exercise already has that name'); inp.focus(); return; }
+  if (r.error) {
+    const msg = r.error === 'duplicate' ? 'Another exercise already has that name' : 'The name can’t be empty';
+    if (fromBlur) { ui.renaming = null; render(); toast(`${msg} — name not changed`); }
+    else { toast(msg); inp.focus(); }
+    return;
+  }
   ui.renaming = null;
   save();
   render();
@@ -920,7 +930,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); commitRename(t); }
   else if (e.key === 'Escape') { ui.renaming = null; render(); }
 });
-document.addEventListener('focusout', e => { if (e.target.dataset?.rename) commitRename(e.target); });
+document.addEventListener('focusout', e => { if (e.target.dataset?.rename) commitRename(e.target, true); });
 
 document.addEventListener('change', e => {
   const t = e.target;

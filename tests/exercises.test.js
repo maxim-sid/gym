@@ -44,3 +44,10 @@ test('renameExercise: trims, keeps the id, refuses empty and duplicates (case-in
   assert.deepEqual(C.renameExercise(S, 'nope', 'X'), { error: 'missing' });
   assert.equal(C.lastPerf(S, 'exsqat01').sets.length, 4);       // history still found by id
 });
+
+test('draftUses: an exercise in the unsaved plan draft blocks deletion', () => {
+  const draft = { days: [{ exercises: [{ exId: 'a' }] }, { exercises: [{ exId: 'b' }] }] };
+  assert.equal(C.draftUses(draft, 'b'), true);
+  assert.equal(C.draftUses(draft, 'z'), false);
+  assert.equal(C.draftUses(null, 'b'), false);
+});
