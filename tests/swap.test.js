@@ -145,3 +145,87 @@ test('lastPerf: a later occurrence skips past slots where the exercise was only 
   assert.deepEqual(C.lastPerf(S, 'dips', { occurrence: 1 }).sets, [set(10, 12)]);  // not the substitute's 5 kg
   assert.deepEqual(C.lastPerf(S, 'dips').sets, [set(20, 8)]);
 });
+
+/* ---------- 2.3 rest of block ---------- */
+
+function block() {
+  const S = state(), m = S.mesos[0];
+  m.log = {
+    '0-0': { date: 100, done: true, slots: [{ exId: 'dips', sets: [set(20, 8)], fb: {} }, { exId: 'sq', sets: [set(100, 8)], fb: {} }] },
+    '1-0': { date: null, done: false, slots: [{ exId: 'dips', sets: [{ w: '22', r: '', done: false }, blank()], fb: {} }, { exId: 'sq', sets: [blank()], fb: {} }] }, // today
+    '2-0': { date: null, done: false, slots: [{ exId: 'dips', sets: [blank(), blank()], fb: { pump: 1 } }, { exId: 'sq', sets: [blank()], fb: {} }] },  // future, stored
+    '3-0': { date: null, done: false, slots: [{ exId: 'dips', sets: [set(20, 8), blank()], fb: {} }, { exId: 'sq', sets: [blank()], fb: {} }] },  // has a done set
+    '4-0': { date: null, done: false, skipped: true, slots: [{ exId: 'dips', sets: [blank()], fb: {} }, { exId: 'sq', sets: [blank()], fb: {} }] },
+  };
+  return { S, m };
+}
+
+test('swapBlock: plan slot, today and untouched sessions follow; done, skipped and logged ones do not', () => {
+  const { m } = block();
+  const before = JSON.parse(JSON.stringify(m));
+  const r = C.swapBlock(m, 0, 0, 'ring', '1-0');
+  assert.ok(r.snap);
+  assert.equal(m.days[0].exercises[0].exId, 'ring');
+  assert.equal(m.days[0].exercises[0].notes, 'Hard set first');            // kept unless clearNote
+  assert.deepEqual(m.log['1-0'].slots[0], { exId: 'ring', sets: [blank(), blank()], fb: {} });
+  assert.deepEqual(m.log['2-0'].slots[0], { exId: 'ring', sets: [blank(), blank()], fb: {} });
+  assert.deepEqual(m.log['0-0'], before.log['0-0']);                         // done: untouched
+  assert.deepEqual(m.log['3-0'], before.log['3-0']);                         // a done set in slot 0: untouched
+  assert.deepEqual(m.log['4-0'], before.log['4-0']);                         // skipped: untouched
+  assert.deepEqual(m.log['1-0'].slots[1], before.log['1-0'].slots[1]);       // other slots untouched
+  assert.deepEqual(Object.keys(r.snap.slots).sort(), ['1-0', '2-0']);
+  // Not "swapped" any more: the plan matches.
+  assert.equal(C.swappedFrom(m, 0, m.log['1-0'], 0), null);
+  // Undo restores everything.
+  C.restoreBlock(m, 0, 0, r.snap);
+  assert.deepEqual(m, before);
+});
+
+test('swapBlock: clearNote, refusals', () => {
+  let { m } = block();
+  C.swapBlock(m, 0, 0, 'ring', '1-0', { clearNote: true });
+  assert.equal(m.days[0].exercises[0].notes, '');
+  ({ m } = block());
+  m.log['1-0'].slots[0].sets[0] = set(20, 8);
+  const before = JSON.parse(JSON.stringify(m));
+  assert.deepEqual(C.swapBlock(m, 0, 0, 'ring', '1-0'), { error: 'done' });
+  assert.deepEqual(m, before);
+  assert.deepEqual(C.swapBlock(m, 0, 0, 'ring', '9-0'), { error: 'missing' });
+});
+
+test('swapBlock after a today-only swap to the same exercise: the plan follows', () => {
+  const { m } = block();
+  C.swapToday(m.log['1-0'], 0, 'ring');
+  const r = C.swapBlock(m, 0, 0, 'ring', '1-0');
+  assert.ok(r.snap);
+  assert.equal(m.days[0].exercises[0].exId, 'ring');
+  assert.equal(m.log['2-0'].slots[0].exId, 'ring');
+  assert.deepEqual(C.swapBlock(m, 0, 0, 'ring', '1-0'), { error: 'same' });
+});
+
+test('restoreBlock never undoes over sets logged since', () => {
+  const { m } = block();
+  const r = C.swapBlock(m, 0, 0, 'ring', '1-0');
+  m.log['1-0'].slots[0].sets[0] = set(0, 12);
+  C.restoreBlock(m, 0, 0, r.snap);
+  assert.equal(m.days[0].exercises[0].exId, 'dips');
+  assert.equal(m.log['1-0'].slots[0].exId, 'ring');
+  assert.equal(m.log['2-0'].slots[0].exId, 'dips');
+});
+
+test('rp progression after a block swap applies to the new exercise from the base count', () => {
+  const { m } = block();
+  m.style = 'rp';
+  m.days[0].exercises[0].plan = [2, 2];
+  C.swapBlock(m, 0, 0, 'ring', '1-0');
+  const s = m.log['1-0'];
+  s.slots[0].sets = [set(0, 12), set(0, 12)];
+  s.slots[0].fb = { sore: 0, pump: 0, work: 0, joint: 0 };     // +2
+  s.slots[1].sets = [set(100, 8)];
+  const { changes } = C.finishSession(m, 1, 0, s, 1000);
+  assert.equal(m.days[0].exercises[0].plan[2], 4);
+  assert.deepEqual(changes.find(c => c.exId === 'ring'), { exId: 'ring', from: 2, to: 4 });
+  // The stored future session (no done sets) takes the new count too.
+  assert.equal(m.log['2-0'].slots[0].sets.length, 4);
+  assert.equal(m.log['2-0'].slots[0].exId, 'ring');
+});

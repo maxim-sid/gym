@@ -590,6 +590,34 @@
     delete sl.bump;
     return { snap };
   }
+  // Rest of block (2.3): the plan slot itself does newExId from now on. Today's session (todayKey, stored) goes
+  // through swapToday; every other session of day d that isn't done or skipped and has no done set in slot i
+  // follows. Done sessions are never touched (history keeps what was lifted). clearNote empties the plan note.
+  // → {snap} for restoreBlock | {error: 'done'|'same'|'missing'}
+  function swapBlock(m, d, i, newExId, todayKey, { clearNote = false } = {}) {
+    const slot = m.days[d]?.exercises[i];
+    const today = m.log[todayKey];
+    if (!slot || !today?.slots[i]) return { error: 'missing' };
+    if (today.slots[i].sets.some(x => x.done)) return { error: 'done' };
+    if (slot.exId === newExId && today.slots[i].exId === newExId) return { error: 'same' };
+    const snap = { plan: snapSlot(slot), slots: {} };
+    for (const [k, s] of Object.entries(m.log)) {
+      if (+k.split('-')[1] !== d || s.done || s.skipped || !s.slots[i]) continue;
+      const r = swapToday(s, i, newExId); // refuses a slot with done sets; 'same' needs no change
+      if (r.snap) snap.slots[k] = r.snap;
+    }
+    slot.exId = newExId;
+    if (clearNote) slot.notes = '';
+    return { snap };
+  }
+  function restoreBlock(m, d, i, snap) {
+    restoreSlot(m.days[d].exercises[i], snap.plan);
+    for (const [k, sl] of Object.entries(snap.slots)) {
+      const cur = m.log[k]?.slots[i];
+      if (cur && !cur.sets.some(x => x.done)) restoreSlot(cur, sl); // never undo over sets logged since
+    }
+  }
+
   // Back to the planned exercise: the same rules as a swap.
   const unswap = (m, d, s, i) => swappedFrom(m, d, s, i) ? swapToday(s, i, m.days[d].exercises[i].exId) : { error: 'same' };
 
@@ -642,6 +670,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

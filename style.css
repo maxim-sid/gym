@@ -171,6 +171,9 @@ ol.hint { padding-left: 20px; }
 .sitem .muted { flex: none; font-size: 13px; }
 .sitem.add { color: var(--acc); font-weight: 600; }
 #swaplist { margin-bottom: 12px; }
+.swapmode { margin: 8px 0 2px; }
+.swapmode button { flex: 1; min-height: 44px; }
+.note-q { font-style: italic; margin: 8px 0 4px; overflow-wrap: anywhere; }
 .swapped { color: var(--muted); font-size: 14px; display: flex; align-items: center; flex-wrap: wrap; margin-top: -2px; }
 .lnk { color: var(--acc); min-height: 44px; padding: 0 4px; text-decoration: underline; }
 .icon.more { font-size: 22px; line-height: 1; margin: -8px -8px 0 0; }
