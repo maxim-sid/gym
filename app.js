@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof skipSlot !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof skipWorkout !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -111,14 +111,15 @@ function writeGuard() {
 function cardWritable() {
   const m = activeMeso(), { w, d } = ui.at;
   if (canWrite(session(m, w, d), sessKey(m, w, d), ui.edit)) return true;
-  toast('Tap Edit to change a finished workout');
+  toast(refusal(session(m, w, d)));
   return false;
 }
+const refusal = s => s?.skipped ? 'This workout was skipped — tap “Do it anyway” first' : 'Tap Edit to change a finished workout';
 
 function curW() {
   const m = activeMeso();
   const { w, d } = ui.at;
-  if (!canWrite(session(m, w, d), sessKey(m, w, d), ui.edit)) { toast('Tap Edit to change a finished workout'); return null; }
+  if (!canWrite(session(m, w, d), sessKey(m, w, d), ui.edit)) { toast(refusal(session(m, w, d))); return null; }
   return { m, s: session(m, w, d, true), w, d };
 }
 
@@ -153,7 +154,10 @@ function viewToday() {
   const rir = targetRIR(m, w);
   const effort = deload ? '<b>Deload</b> — half the sets, about half the weight'
     : isFixed(m) ? '' : ` · Leave <b>${rir} rep${rir === 1 ? '' : 's'}</b> in reserve`;
-  let h = `<header class="top"><div class="eyebrow">${esc(m.name)}</div><h1>${esc(day.name)}</h1>
+  // Workout ⋯ (skip / discard / finish): an unfinished, unskipped workout only.
+  const wkMore = s && !s.done && !s.skipped
+    ? `<button class="icon more wkmore" data-act="wkMenu" aria-label="More for ${esc(day.name)}">⋯</button>` : '';
+  let h = `<header class="top">${wkMore}<div class="eyebrow">${esc(m.name)}</div><h1>${esc(day.name)}</h1>
     <div class="meta">Week ${w + 1} of ${tw}${day.weekday != null ? ` · ${WEEKDAYS[day.weekday]}` : ''}${deload ? ' · ' + effort : effort}</div>
     ${day.notes ? `<p class="hint">${esc(day.notes)}</p>` : ''}</header>`;
 
@@ -163,12 +167,12 @@ function viewToday() {
     dayOrder(m).forEach(di => {
       const ss = m.log[`${ww}-${di}`];
       // State is shown by a glyph and in the label too, not by colour alone: ✓ done, • started.
-      const state = ss?.done ? 'done' : hasContent(ss) ? 'started' : '';
+      const state = ss?.done ? 'done' : ss?.skipped ? 'skipped' : hasContent(ss) ? 'started' : '';
       const here = ww === w && di === d;
       const wd = m.days[di].weekday;
       const label = `Week ${ww + 1} ${m.days[di].name}${state ? `, ${state}` : ''}${here ? ', shown' : ''}`;
       h += `<button class="dot ${here ? 'cur' : ''} ${state}" data-act="goto" data-w="${ww}" data-d="${di}" aria-label="${esc(label)}" ${here ? 'aria-current="true"' : ''}>${
-        state === 'done' ? '✓' : state === 'started' ? '•' : ''}${wd != null ? WEEKDAYS[wd].slice(0, 2) : di + 1}</button>`;
+        state === 'done' ? '✓' : state === 'started' ? '•' : state === 'skipped' ? '–' : ''}${wd != null ? WEEKDAYS[wd].slice(0, 2) : di + 1}</button>`;
     });
     h += '</div>';
   }
@@ -176,11 +180,16 @@ function viewToday() {
 
   if (m.complete) h += `<div class="banner">Mesocycle complete 🎉 Start a new one from the Plan tab.</div>`;
 
-  if (!s) {
-    h += `<div class="card"><div class="sub">Planned</div>${day.exercises.map((sl, i) =>
+  const preview = `<div class="card"><div class="sub">Planned</div>${day.exercises.map((sl, i) =>
       `<div class="line"><span>${esc(exById(sl.exId)?.name)}</span><span class="muted">${plannedSets(m, d, i, w)} sets</span></div>`).join('')}
-      ${w > m.pos.w && !m.complete ? '<p class="hint">Set counts can still change based on your feedback in earlier workouts.</p>' : ''}</div>
-      <button class="btn primary block" data-act="start">Start this workout</button>`;
+      ${w > m.pos.w && !m.complete ? '<p class="hint">Set counts can still change based on your feedback in earlier workouts.</p>' : ''}</div>`;
+  // Skipped: read-only preview; "Do it anyway" puts it back in the sequence (whatever was typed is kept).
+  if (s?.skipped) {
+    return h + `<div class="banner skipb row between"><span>Skipped ${fmtDate(s.skippedAt)}</span>
+      <button class="btn sm" data-act="doAnyway">Do it anyway</button></div>${preview}`;
+  }
+  if (!s) {
+    h += `${preview}<button class="btn primary block" data-act="start">Start this workout</button>`;
     if (!m.complete) {
       h += `<p class="hint">Next up: Week ${m.pos.w + 1}, ${esc(m.days[m.pos.d].name)}.
         <button class="btn sm" data-act="goto" data-w="${m.pos.w}" data-d="${m.pos.d}">Go there</button></p>`;
@@ -259,11 +268,12 @@ function viewPlan() {
     <button class="btn primary block" data-act="newMeso">+ New mesocycle</button>`;
   S.mesos.slice().reverse().forEach(m => {
     const done = Object.values(m.log).filter(x => x.done).length;
+    const skipped = Object.values(m.log).filter(x => x.skipped).length;
     const total = totalWeeks(m) * m.days.length;
     h += `<div class="card"><div class="row between"><div><h2>${esc(m.name)}</h2>
-      <div class="meta">${m.days.length} days/week · ${m.weeks} weeks${m.deload ? ' + deload' : ''} · ${isFixed(m) ? 'fixed sets' : 'auto sets'} · ${done}/${total} workouts</div></div>
+      <div class="meta">${m.days.length} days/week · ${m.weeks} weeks${m.deload ? ' + deload' : ''} · ${isFixed(m) ? 'fixed sets' : 'auto sets'} · ${skipped ? `${done} done · ${skipped} skipped / ${total}` : `${done}/${total} workouts`}</div></div>
       ${m.id === S.activeId ? '<span class="tag acc">Active</span>' : ''}</div>
-      <div class="bar"><i style="width:${(done / total) * 100}%"></i></div>
+      <div class="bar"><i style="width:${((done + skipped) / total) * 100}%"></i></div>
       <div class="row">
         ${m.id !== S.activeId ? `<button class="btn sm" data-act="activate" data-id="${m.id}">Make active</button>` : ''}
         ${hasLogs(m) ? '' : `<button class="btn sm" data-act="editMeso" data-id="${m.id}">Edit</button>`}
@@ -445,7 +455,8 @@ function sheetFinish() {
   const btn = (mode, label, primary) => `<button class="btn block ${primary ? 'primary' : ''}" data-act="finishGo" data-mode="${mode}">${label}</button>`;
   let h = `<p class="meta">${rv.exercises} of ${rv.of} exercises · ${rv.sets} set${rv.sets === 1 ? '' : 's'}</p>`;
   if (rv.nothing) {
-    h += `<p class="warn">Nothing logged yet.</p>${btn('plain', 'Finish anyway')}`;
+    // Never a fake finished workout: skip it instead (or keep training).
+    h += `<p class="warn">Nothing logged yet.</p><button class="btn block primary" data-act="wkSkip">Skip workout</button>`;
   } else if (rv.typed.length) {
     const n = rv.typed.length;
     h += `<p class="warn">⚠ ${n} set${n === 1 ? ' has' : 's have'} numbers but no ✓<br>
@@ -479,6 +490,24 @@ function sheetCard() {
     <div class="srow"><span>Weight step · ${unit()}</span><div class="chips">${stepChoices(ex).map(v =>
       `<button class="chip ${v === cur ? 'on' : ''}" data-act="cardStep" data-v="${v}" aria-pressed="${v === cur}">${v}</button>`).join('')}</div></div>`,
   };
+}
+
+// Workout ⋯ sheet (2.5): Skip (no set done) or Finish (sets done) · Discard (has content; asks first).
+function sheetWorkout() {
+  const m = activeMeso(), { w, d } = ui.at, { key, confirmDiscard } = ui.sheet;
+  const s = session(m, w, d) ?? (m.pos.w === w && m.pos.d === d ? blankSession(m, w, d) : null);
+  if (key !== sessKey(m, w, d) || !s || s.done || s.skipped) return null;
+  const anyDone = s.slots.some(sl => sl.sets.some(x => x.done));
+  let body = anyDone ? '<button class="sact" data-act="finish">✓ Finish workout…</button>'
+    : '<button class="sact" data-act="wkSkip">⤼ Skip this workout</button>';
+  if (m.log[`${w}-${d}`] && hasContent(s)) {
+    const n = loggedSets(s);
+    body += confirmDiscard
+      ? `<p class="warn">${n ? `Delete ${n} logged set${n === 1 ? '' : 's'} from this workout?` : 'Clear this workout?'} It stays next up.</p>
+        <button class="btn block danger" data-act="wkDiscard">Delete</button><button class="btn block" data-act="wkDiscardKeep">Keep</button>`
+      : '<button class="sact" data-act="wkDiscard">Discard this workout</button>';
+  }
+  return { title: esc(m.days[d].name), body, focus: confirmDiscard ? '[data-act=wkDiscard]' : '' };
 }
 
 // Set-number sheet (2.4): Untick (done) · Skip/Unskip · Delete (asks first when numbers are typed).
@@ -581,7 +610,7 @@ function sheetSwapNote() {
   };
 }
 
-const SHEETS = { finish: sheetFinish, card: sheetCard, swap: sheetSwap, swapNote: sheetSwapNote, set: sheetSet };
+const SHEETS = { workout: sheetWorkout, finish: sheetFinish, card: sheetCard, swap: sheetSwap, swapNote: sheetSwapNote, set: sheetSet };
 
 // Shell shared by every sheet: title, body, Cancel at the bottom; the backdrop also cancels.
 function renderSheet() {
@@ -850,6 +879,47 @@ const A = {
     render();
     if (bumpOn(c.sl) && n) toast(`Filled ${n} set${n === 1 ? '' : 's'}`, { label: 'Undo', act: () => { if (bumpOn(c.sl)) toggleBump(c.sl, c.last, c.step, c.meta.reps); }, guard: writeGuard() });
   },
+  wkMenu: () => {
+    if (!cardWritable()) return;
+    const m = activeMeso(), { w, d } = ui.at;
+    openSheet({ kind: 'workout', key: sessKey(m, w, d) }, '[data-act=wkMenu]');
+  },
+  // Skip the open workout (from the ⋯ sheet or the Finish sheet's "Nothing logged yet").
+  wkSkip: () => {
+    const m = activeMeso(), { w, d } = ui.at;
+    if (!cardWritable()) { closeSheet(); return; }
+    const r = skipWorkout(m, w, d, Date.now());
+    ui.sheet = null;
+    if (r.error) { render(); if (r.error === 'done') toast('Sets are logged — finish it instead'); return; }
+    if (rest?.at && rest.at.w === w && rest.at.d === d) stopRest();
+    save();
+    if (!m.complete) ui.at = { meso: m.id, ...m.pos }; // on to the next workout
+    render();
+    window.scrollTo(0, 0);
+    const name = m.days[d].name;
+    toast(`Skipped ${name}`, { label: 'Undo', act: () => { restoreSkip(m, w, d, r.snap); ui.at = { meso: m.id, w, d }; },
+      guard: () => activeMeso() === m && !!m.log[`${w}-${d}`]?.skipped });
+  },
+  doAnyway: () => {
+    const m = activeMeso(), { w, d } = ui.at;
+    const r = unskipWorkout(m, w, d);
+    save();
+    render();
+    if (r.moved) toast(m.complete ? 'Block no longer complete' : `Next up is now W${m.pos.w + 1} ${m.days[m.pos.d].name}`);
+  },
+  wkDiscard: () => {
+    if (!ui.sheet?.confirmDiscard) { ui.sheet.confirmDiscard = true; render(); $('#sheet [data-act=wkDiscard]')?.focus(); return; }
+    const m = activeMeso(), { w, d } = ui.at, k = `${w}-${d}`;
+    if (!cardWritable()) { closeSheet(); return; }
+    const r = discardWorkout(m, w, d);
+    ui.sheet = null;
+    if (r.error) { render(); return; }
+    if (rest?.at && rest.at.w === w && rest.at.d === d) stopRest();
+    save();
+    render();
+    toast('Workout discarded', { label: 'Undo', act: () => { m.log[k] = r.s; }, guard: () => activeMeso() === m && !m.log[k] });
+  },
+  wkDiscardKeep: () => { ui.sheet.confirmDiscard = false; render(); $('#sheet [data-act=wkDiscard]')?.focus(); },
   // Set number: opens the set sheet (Untick / Skip / Delete). Nothing is written until a row is tapped.
   setNum: el => {
     if (!cardWritable()) return;

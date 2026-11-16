@@ -216,7 +216,8 @@
 
   // Finished workouts are read-only unless the user turned on Edit for exactly that session (F18).
   // key: the session's key (e.g. "<mesoId>:w-d"); editKey: the key Edit is on for, or null.
-  const canWrite = (s, key, editKey) => !s || !s.done || (editKey != null && editKey === key);
+  // A skipped workout takes no writes at all (not even in Edit): "Do it anyway" (unskipWorkout) comes first.
+  const canWrite = (s, key, editKey) => !s || (!s.skipped && (!s.done || (editKey != null && editKey === key)));
 
   // Undo of a Finish is allowed only while that exact session is still in the log and still finished (nothing has
   // replaced it, e.g. an import, and it wasn't undone already). It is the one write to a finished session that
@@ -231,13 +232,14 @@
   function advance(m) {
     for (let w = 0; w < totalWeeks(m); w++) {
       for (const d of dayOrder(m)) {
-        if (!m.log[`${w}-${d}`]?.done) { m.pos = { w, d }; m.complete = false; return; }
+        const ss = m.log[`${w}-${d}`];
+        if (!(ss?.done || ss?.skipped)) { m.pos = { w, d }; m.complete = false; return; } // skipped = passed
       }
     }
     m.complete = true;
   }
 
-  const hasContent = ss => !!ss && (ss.done || ss.slots.some(sl => sl.skip || sl.sets.some(x => x.done || x.skip || typedSet(x))));
+  const hasContent = ss => !!ss && (ss.done || ss.skipped || ss.slots.some(sl => sl.skip || sl.sets.some(x => x.done || x.skip || typedSet(x))));
   const slotEmpty = sl => !sl.skip && !sl.from && !sl.sets.some(x => x.done || x.skip || typedSet(x));
   const typedSet = x => String(x.w ?? '').trim() !== '' || String(x.r ?? '').trim() !== '';
 
@@ -379,6 +381,49 @@
   function canRemoveLastSet(sl) {
     const last = sl.sets[sl.sets.length - 1];
     return sl.sets.length > 1 && !last.done && !last.skip && last.w === '' && last.r === '';
+  }
+
+  /* ---------- skip / discard a workout (2.5) ---------- */
+  // Sets a Discard would delete: done or with numbers typed.
+  const loggedSets = s => s.slots.reduce((n, sl) => n + sl.sets.filter(x => x.done || typedSet(x)).length, 0);
+  // Skip: "I won't do this one." Only before any set is done. A missing session is created full (blankSession);
+  // anything typed or skipped in it is kept. The schedule moves on (sequence model). → {snap} | {error}
+  function skipWorkout(m, w, d, now) {
+    const k = `${w}-${d}`, s0 = m.log[k];
+    if (s0?.done || s0?.skipped) return { error: 'state' };
+    if (s0 && s0.slots.some(sl => sl.sets.some(x => x.done))) return { error: 'done' };
+    const snap = { s: s0 ? snapSlot(s0) : null, pos: { ...m.pos }, complete: m.complete };
+    const s = s0 ?? (m.log[k] = blankSession(m, w, d));
+    s.skipped = true;
+    s.skippedAt = now;
+    advance(m);
+    return { snap };
+  }
+  // Undo of a skip: the session as it was (or gone, if the skip created it) and the old position.
+  function restoreSkip(m, w, d, snap) {
+    const k = `${w}-${d}`;
+    if (snap.s) { if (m.log[k]) restoreSlot(m.log[k], snap.s); else m.log[k] = snapSlot(snap.s); } else delete m.log[k];
+    m.pos = { ...snap.pos };
+    m.complete = snap.complete;
+  }
+  // "Do it anyway": back into the sequence; an earlier one becomes next up again. → {moved: pos changed}
+  function unskipWorkout(m, w, d) {
+    const s = m.log[`${w}-${d}`];
+    if (!s?.skipped) return { moved: false };
+    delete s.skipped;
+    delete s.skippedAt;
+    const before = `${m.pos.w}-${m.pos.d}-${m.complete}`;
+    advance(m);
+    return { moved: before !== `${m.pos.w}-${m.pos.d}-${m.complete}` };
+  }
+  // Discard: "I'll redo this." Deletes an unfinished session; no advance (it stays where it is in the sequence).
+  // → {s} (put back with m.log[key] = s) | {error}
+  function discardWorkout(m, w, d) {
+    const k = `${w}-${d}`, s = m.log[k];
+    if (!s) return { error: 'missing' };
+    if (s.done || s.skipped) return { error: 'state' };
+    delete m.log[k];
+    return { s };
   }
 
   /* ---------- skip (2.4) ---------- */
@@ -714,6 +759,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

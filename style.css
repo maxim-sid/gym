@@ -35,6 +35,11 @@ input::placeholder { color: var(--ph); opacity: 1; font-weight: 400; }
 .tag.acc { color: var(--acc); background: rgba(255,106,61,.12); margin: 0; }
 .banner { background: rgba(56,217,122,.12); color: var(--ok); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; font-weight: 600; }
 .banner.ro { background: rgba(255,176,32,.12); color: var(--warn); }
+.banner.skipb { background: var(--card2); color: var(--muted); }
+.top { position: relative; }
+.wkmore { position: absolute; top: 2px; right: -8px; }
+.top .eyebrow, .top h1 { padding-right: 40px; }
+.dot.skipped { border-style: dashed; border-color: var(--field); color: var(--muted); background: transparent; }
 .empty { text-align: center; padding: 56px 8px; }
 .empty p { color: var(--muted); margin-bottom: 24px; }
 
