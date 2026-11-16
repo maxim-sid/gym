@@ -1,15 +1,18 @@
 // A deploy reaches phones ONLY if CACHE is bumped: files come solely from the install
 // precache below, and a new worker installs only when this file changes.
-const CACHE = 'liftbook-v29';
+const CACHE = 'liftbook-v30';
 const FILES = ['./', 'index.html', 'style.css', 'data/plan.js', 'core.js', 'app.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
 
-// No skipWaiting(): a new worker waits until every Liftbook page is closed, so an
-// open page never mixes old and new files. The update applies on the next launch.
+// No automatic skipWaiting(): a new worker waits until every Liftbook page is closed,
+// so an open page never mixes old and new files. The page may ask for it ('skip') when
+// it's back in the foreground and idle, then reloads straight into the new version.
 // cache:'reload' skips the browser's HTTP cache (GitHub Pages serves max-age=600),
 // so the precache gets the files just deployed, not stale copies.
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES.map(u => new Request(u, { cache: 'reload' })))));
 });
+
+self.addEventListener('message', e => { if (e.data === 'skip') self.skipWaiting(); });
 
 // claim() only matters on the very first install (no old worker yet): it lets the
 // page that installed it work offline right away. On updates, activation happens

@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -969,7 +969,17 @@ $('#importFile').addEventListener('change', async e => {
 document.addEventListener('visibilitychange', () => { if (rest && !document.hidden) tickRest(); });
 
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
-  navigator.serviceWorker.register('sw.js');
+  // A waiting update applies itself when the app returns to the foreground, unless something is in progress.
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    let asked = false; // first install also fires controllerchange; only reload when we asked
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (asked) location.reload(); });
+    document.addEventListener('visibilitychange', async () => {
+      if (document.hidden) return;
+      await reg.update().catch(() => {});
+      const focused = !!document.activeElement?.matches('input, select, textarea');
+      if (reg.waiting && canAutoUpdate({ rest: !!rest, focused, sheet: !!ui.sheet, edit: !!ui.edit })) { asked = true; reg.waiting.postMessage('skip'); }
+    });
+  });
 }
 
 render();
