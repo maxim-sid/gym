@@ -185,6 +185,8 @@ ol.hint { padding-left: 20px; }
 .prow > span { margin-bottom: 0 !important; }
 .prow > input { flex: 1; max-width: 62%; }
 .rin { width: 64px; text-align: center; }
+.btn.addex { margin: 4px 0 10px; border-style: dashed; color: var(--muted); }
+.rmline { padding: 0 12px 0 14px; min-height: 52px; }
 #rest .rinfo { flex: 1; min-width: 0; }
 #rest .rtop { display: flex; align-items: baseline; gap: 8px; }
 #rest .rl { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }

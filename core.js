@@ -193,6 +193,7 @@
   }
 
   function plannedSets(m, d, i, w) {
+    if (m.days[d].exercises[i].off) return 0; // retired from the plan (2.9b)
     const plan = m.days[d].exercises[i].plan;
     if (isDeload(m, w)) return Math.max(1, Math.round(plan[0] / 2));
     for (let k = w; k >= 0; k--) if (plan[k] != null) return plan[k];
@@ -259,6 +260,8 @@
     const changes = [];
     if (!isFixed(m) && !isDeload(m, w) && w + 1 < m.weeks) {
       m.days[d].exercises.forEach((slot, i) => {
+        // Retired slots, and slots a session doesn't have (an exercise appended after it), have no progression.
+        if (slot.off || !s.slots[i]) return;
         // A swapped slot's feedback is about the substitute; a skipped one holds (never shrinks next week).
         const n = swappedFrom(m, d, s, i) || s.slots[i].skip ? base[i] : Math.max(1, Math.min(12, base[i] + setDelta(s.slots[i].fb)));
         slot.plan[w + 1] = n;
@@ -280,8 +283,10 @@
   // that. (Finish removes every empty set either way; this only splits the wording.)
   function finishReview(s) {
     const typed = [];
-    let sets = 0, empty = 0, exercises = 0, notStarted = 0, skipped = 0;
+    let sets = 0, empty = 0, exercises = 0, notStarted = 0, skipped = 0, of = 0;
     s.slots.forEach((sl, i) => {
+      if (!sl.sets.length && !sl.skip) return; // a retired exercise (2.9b): not part of this workout
+      of++;
       if (sl.sets.some(x => x.done)) exercises++;
       if (sl.skip) skipped++; // a skipped exercise is neither "not started" nor has empty sets (all undone are skipped)
       const started = sl.skip || sl.sets.some(x => x.done || x.skip || typedSet(x));
@@ -293,7 +298,7 @@
         else empty++;
       });
     });
-    return { exercises, of: s.slots.length, sets, typed, empty, notStarted, skipped, nothing: !sets && !typed.length };
+    return { exercises, of, sets, typed, empty, notStarted, skipped, nothing: !sets && !typed.length };
   }
 
   // "Log them" / "Skip them" for the typed sets. accept(i, j) → acceptSet result. All are checked first, so
@@ -484,6 +489,55 @@
     m.weeks = snap.weeks;
     m.complete = snap.complete;
     m.pos = { ...snap.pos };
+  }
+
+  /* ---------- live plan editing, part 2 (2.9b): append, retire, reinstate ---------- */
+  // Append an exercise to day d (builder defaults). Every session of that day that isn't finished gets a matching
+  // slot, skipped ones included (empty), so slot i lines up everywhere; finished sessions keep fewer slots.
+  // → {i, keys} for removeAppended
+  function appendSlot(m, d, exId) {
+    m.days[d].exercises.push({ exId, plan: [2], reps: null, type: 'accessory', notes: '', timed: false });
+    const i = m.days[d].exercises.length - 1, keys = [];
+    for (const [k, s] of Object.entries(m.log)) {
+      const [w, dd] = k.split('-').map(Number);
+      if (dd !== d || s.done) continue;
+      while (s.slots.length < i) s.slots.push({ exId: m.days[d].exercises[s.slots.length].exId, sets: [], fb: {} }); // never sparse
+      s.slots.push({ exId, sets: s.skipped ? [] : blankSets(plannedSets(m, d, i, w)), fb: {} });
+      keys.push(k);
+    }
+    return { i, keys };
+  }
+  // Undo of appendSlot, while nothing was logged in the new slots.
+  const canRemoveAppended = (m, d, r) => m.days[d].exercises.length === r.i + 1
+    && r.keys.every(k => !m.log[k] || !m.log[k].slots[r.i] || slotEmpty(m.log[k].slots[r.i]));
+  function removeAppended(m, d, r) {
+    if (!canRemoveAppended(m, d, r)) return false;
+    m.days[d].exercises.pop();
+    r.keys.forEach(k => { if (m.log[k]?.slots.length === r.i + 1) m.log[k].slots.pop(); });
+    return true;
+  }
+  // Retire slot i (off:true): plannedSets 0, no progression, dropped by Copy, hidden when empty. Open sessions'
+  // empty slots get no sets; slots with anything in them stay. → {snap} for restore | {error}
+  function retireSlot(m, d, i) {
+    const slot = m.days[d]?.exercises[i];
+    if (!slot) return { error: 'missing' };
+    if (slot.off) return { error: 'same' };
+    const plan = snapSlot(slot);
+    slot.off = true;
+    return { snap: { plan, slots: rebuildOpen(m) } };
+  }
+  // Back in the plan: open sessions' empty slots get their planned sets again. → {snap} | {error}
+  function reinstateSlot(m, d, i) {
+    const slot = m.days[d]?.exercises[i];
+    if (!slot?.off) return { error: 'same' };
+    const plan = snapSlot(slot);
+    delete slot.off;
+    return { snap: { plan, slots: rebuildOpen(m) } };
+  }
+  // Undo for either: the plan slot and the session slots they rebuilt.
+  function restorePlanSlot(m, d, i, snap) {
+    restoreSlot(m.days[d].exercises[i], snap.plan);
+    restoreRebuilt(m, snap.slots);
   }
 
   /* ---------- rest timer (2.8) ---------- */
@@ -769,7 +823,7 @@
 
   // lastPerf's occurrence for slot i: earlier UNSWAPPED slots doing the same planned exercise.
   // A swapped slot always uses 0 (the substitute's most recent slot).
-  const occurrenceOf = (m, d, s, i) => swappedFrom(m, d, s, i) ? 0
+  const occurrenceOf = (m, d, s, i) => !s.slots[i] || swappedFrom(m, d, s, i) ? 0
     : s.slots.slice(0, i).filter((x, k) => x.exId === s.slots[i].exId && !swappedFrom(m, d, s, k)).length;
 
   const snapSlot = sl => JSON.parse(JSON.stringify(sl));
@@ -883,6 +937,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, REST_KEY, clampRest, restFor, restState, adjustRest };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);
