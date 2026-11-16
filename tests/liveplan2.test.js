@@ -106,3 +106,38 @@ test('readers tolerate an old finished session with fewer slots than the plan', 
   const s = m.log['1-0'];
   assert.doesNotThrow(() => C.finishSession(m, 1, 0, s, 50));
 });
+
+test('append Undo with a shown-only next-up workout that gets stored afterwards', () => {
+  // Appended while W2 Day A was only shown (not stored); then it gets stored.
+  let m = meso();
+  delete m.log['1-0'];
+  let r = C.appendSlot(m, 0, 'z');
+  assert.deepEqual(r.keys, ['2-0']);
+  m.log['1-0'] = C.blankSession(m, 1, 0);                              // stored by the first write
+  m.log['1-0'].slots[2].sets[0] = set(10, 12);                         // ...into the new slot
+  assert.equal(C.canRemoveAppended(m, 0, r), false);
+  assert.equal(C.removeAppended(m, 0, r), false);
+  assert.equal(m.days[0].exercises.length, 3);
+  // Stored but empty: Undo removes the slot everywhere (plan, stored, skipped).
+  m = meso();
+  delete m.log['1-0'];
+  r = C.appendSlot(m, 0, 'z');
+  m.log['1-0'] = C.blankSession(m, 1, 0);
+  assert.equal(C.removeAppended(m, 0, r), true);
+  assert.equal(m.days[0].exercises.length, 2);
+  assert.equal(m.log['1-0'].slots.length, 2);
+  assert.equal(m.log['2-0'].slots.length, 2);
+  assert.equal(m.log['0-0'].slots.length, 2);
+});
+
+test('unskipWorkout ("Do it anyway") brings the session up to plan changes made while it was skipped', () => {
+  const m = meso();
+  C.setPlanSets(m, 0, 0, 2, 4);                                        // while 2-0 was skipped
+  C.rebuildOpen(m);
+  assert.equal(m.log['2-0'].slots[0].sets.length, 2);                   // skipped: untouched
+  const r = C.appendSlot(m, 0, 'z');
+  assert.deepEqual(m.log['2-0'].slots[r.i].sets, []);
+  C.unskipWorkout(m, 2, 0);
+  assert.equal(m.log['2-0'].slots[0].sets.length, 4);
+  assert.equal(m.log['2-0'].slots[r.i].sets.length, 2);                 // the appended slot gets its sets
+});

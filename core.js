@@ -507,13 +507,15 @@
     }
     return { i, keys };
   }
-  // Undo of appendSlot, while nothing was logged in the new slots.
+  // Undo of appendSlot, while nothing was logged in the new slot anywhere. Checked over every session of day d
+  // that has slot i (not just those that existed at the append: a shown-only workout may have been stored since).
+  const sessionsOfDay = (m, d) => Object.entries(m.log).filter(([k]) => +k.split('-')[1] === d).map(([, s]) => s);
   const canRemoveAppended = (m, d, r) => m.days[d].exercises.length === r.i + 1
-    && r.keys.every(k => !m.log[k] || !m.log[k].slots[r.i] || slotEmpty(m.log[k].slots[r.i]));
+    && sessionsOfDay(m, d).every(s => s.slots.length <= r.i || (s.slots.length === r.i + 1 && slotEmpty(s.slots[r.i])));
   function removeAppended(m, d, r) {
     if (!canRemoveAppended(m, d, r)) return false;
     m.days[d].exercises.pop();
-    r.keys.forEach(k => { if (m.log[k]?.slots.length === r.i + 1) m.log[k].slots.pop(); });
+    sessionsOfDay(m, d).forEach(s => { if (s.slots.length === r.i + 1) s.slots.pop(); });
     return true;
   }
   // Retire slot i (off:true): plannedSets 0, no progression, dropped by Copy, hidden when empty. Open sessions'
@@ -590,6 +592,7 @@
     if (!s?.skipped) return { moved: false };
     delete s.skipped;
     delete s.skippedAt;
+    rebuildOpen(m); // plan changes made while it was skipped (rebuildOpen passes over skipped sessions)
     const before = `${m.pos.w}-${m.pos.d}-${m.complete}`;
     advance(m);
     return { moved: before !== `${m.pos.w}-${m.pos.d}-${m.complete}` };

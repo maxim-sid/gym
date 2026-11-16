@@ -86,7 +86,8 @@ const isTimed = (ex, meta) => ex?.timed ?? !!meta?.timed;
 function slotCtx(m, w, d, s, i) {
   const sl = s.slots[i];
   const ex = exById(sl.exId);
-  const meta = m.days[d].exercises[i];
+  // A slot the plan doesn't have (should never happen): a plain card, never a crash that bricks the tab.
+  const meta = m.days[d].exercises[i] ?? { exId: sl.exId, plan: [sl.sets.length || 1], reps: null, type: 'accessory', notes: '' };
   const deload = isDeload(m, w);
   const occurrence = occurrenceOf(m, d, s, i);
   const last = lastPerf(S, sl.exId, { exclude: s, occurrence, before: s.done ? s.date : Infinity });
@@ -582,7 +583,8 @@ function sheetCard() {
     ${own ? '<button class="lnk" data-act="cardRest" data-v="reset">Reset to default</button>' : ''}</div></div>`;
   const unitR = isTimed(ex, slot) ? 'sec' : 'reps';
   // A deload week always does half of the planned sets, so there's nothing to step there.
-  const setsRow = isDeload(m, fromW) ? '<div class="srow prow"><span>Sets</span><span class="muted">Deload: half of planned</span></div>'
+  const setsRow = slot?.off ? `<div class="srow prow"><span>Removed from plan</span><button class="btn sm" data-act="reinstate" data-i="${i}">Restore</button></div>`
+    : isDeload(m, fromW) ? '<div class="srow prow"><span>Sets</span><span class="muted">Deload: half of planned</span></div>'
     : `<div class="srow prow"><span>Sets</span><div class="stepper">
       <button data-act="planSets" data-v="-1" aria-label="One set fewer">−</button><b>${plannedSets(m, d, i, fromW)}</b>
       <button data-act="planSets" data-v="1" aria-label="One set more">+</button></div></div>`;
@@ -735,7 +737,8 @@ function swapListHtml(exId, muscle) {
   const [pick, add] = adding ? ['addPick', 'addNew'] : ['swapPick', 'swapAdd'];
   const g = swapCandidates(S, exId, ui.sheet.q);
   g.muscle = g.muscle ?? muscle;
-  const row = (e, right) => `<button class="sitem" data-act="${pick}" data-id="${e.id}"><span>${esc(e.name)}</span>${right ? `<span class="muted">${right}</span>` : ''}</button>`;
+  const inDay = adding ? new Set(activeMeso().days[ui.at.d].exercises.filter(x => !x.off).map(x => x.exId)) : new Set();
+  const row = (e, right = inDay.has(e.id) ? 'in this day' : '') => `<button class="sitem" data-act="${pick}" data-id="${e.id}"><span>${esc(e.name)}</span>${right ? `<span class="muted">${right}</span>` : ''}</button>`;
   const head = (t, extra = '') => `<div class="sgrp" ${extra}>${t}</div>`;
   let h = '';
   if (g.recent.length) h += head(`Recent · ${esc(g.muscle)}`) + g.recent.map(r => row(r.ex, fmtDate(r.date))).join('');
@@ -768,7 +771,7 @@ function sheetAddEx() {
   };
 }
 // Live block, not a finished workout: the add row and the retired exercises appear at the end of the day.
-function doAppend(exId) {
+function doAppend(exId, extra = '') {
   const m = activeMeso(), { w, d } = ui.at;
   if (!cardWritable() || !hasLogs(m) || m.log[`${w}-${d}`]?.done) { closeSheet(); return; }
   const r = appendSlot(m, d, exId);
@@ -777,7 +780,7 @@ function doAppend(exId) {
   ui.sheet = null;
   render();
   $(`#main .card[data-slot="${r.i}"]`)?.scrollIntoView({ block: 'center' });
-  toast(`${exById(exId)?.name} added to ${m.days[d].name}`, { label: 'Undo', act: () => removeAppended(m, d, r), guard: () => activeMeso() === m && canRemoveAppended(m, d, r) });
+  toast(`${exById(exId)?.name} added to ${m.days[d].name}${extra}`, { label: 'Undo', act: () => removeAppended(m, d, r), guard: () => activeMeso() === m && canRemoveAppended(m, d, r) });
 }
 
 // Undo of a swap: the usual write guard, and only while nothing has been logged on the slot since.
@@ -797,13 +800,14 @@ function doSwap(pick, clearNote) {
     return;
   }
   const exId = pick.id ?? ensureExercise(pick.add.name, pick.add.muscle).id;
+  const extra = pick.add ? ' · set muscle/BW in Exercises' : '';
   const r = block ? swapBlock(c.m, c.d, sh.i, exId, `${c.w}-${c.d}`, { clearNote: !!clearNote }) : swapToday(c.s, sh.i, exId);
   if (!r.error) save();
   closeSheet(); // re-renders and puts focus back on the card's ⋯
   if (r.error) { if (r.error === 'done') toast('Untick the logged sets first to swap'); return; }
   const name = exById(exId).name, m = c.m, d = c.d, i = sh.i;
-  if (block) toast(`${name} for the rest of the block`, { label: 'Undo', act: () => restoreBlock(m, d, i, r.snap), guard: swapUndoGuard(sl) });
-  else toast(`Swapped to ${name} for today`, { label: 'Undo', act: () => restoreSlot(sl, r.snap), guard: swapUndoGuard(sl) });
+  if (block) toast(`${name} for the rest of the block${extra}`, { label: 'Undo', act: () => restoreBlock(m, d, i, r.snap), guard: swapUndoGuard(sl) });
+  else toast(`Swapped to ${name} for today${extra}`, { label: 'Undo', act: () => restoreSlot(sl, r.snap), guard: swapUndoGuard(sl) });
 }
 
 // Asked in the sheet before a rest-of-block swap empties the slot's plan note. Either answer swaps.
@@ -1124,7 +1128,7 @@ const A = {
   addPick: el => doAppend(el.dataset.id),
   addNew: () => {
     const g = swapCandidates(S, null, ui.sheet?.q ?? '');
-    if (g.add && cardWritable()) doAppend(ensureExercise(g.add, addMuscle()).id);
+    if (g.add && cardWritable()) doAppend(ensureExercise(g.add, addMuscle()).id, ' · set muscle/BW in Exercises');
   },
   // ⊘ Remove from plan (retire): from this block's plan; history stays. Not while today's slot has done sets.
   retire: () => {

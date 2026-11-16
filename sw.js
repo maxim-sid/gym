@@ -1,6 +1,6 @@
 // A deploy reaches phones ONLY if CACHE is bumped: files come solely from the install
 // precache below, and a new worker installs only when this file changes.
-const CACHE = 'liftbook-v52';
+const CACHE = 'liftbook-v53';
 const FILES = ['./', 'index.html', 'style.css', 'data/plan.js', 'core.js', 'app.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
 
 // No automatic skipWaiting(): a new worker waits until every Liftbook page is closed,
