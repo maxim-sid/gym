@@ -506,8 +506,11 @@ function sheetFinish() {
   } else if (rv.typed.length) {
     const n = rv.typed.length;
     h += `<p class="warn">⚠ ${n} set${n === 1 ? ' has' : 's have'} numbers but no ✓<br>
-      <span class="muted">${rv.typed.map(({ i, j }) => `${esc(exById(s.slots[i].exId)?.name)} set ${j + 1}`).join(' · ')}</span></p>
-      ${btn('log', 'Log them and finish', true)}${btn('skip', 'Skip them and finish')}`;
+      <span class="muted">${rv.typed.map(({ i, j }) => `${esc(exById(s.slots[i].exId)?.name)} set ${j + 1}`).join(' · ')}</span></p>`;
+    // Opened from the forgotten-Finish path: those numbers may belong to today, so skipping them comes first.
+    h += ui.sheet?.stale
+      ? `<p class="hint">These may have been typed today.</p>${btn('skip', 'Skip them and finish', true)}${btn('log', 'Log them and finish')}`
+      : `${btn('log', 'Log them and finish', true)}${btn('skip', 'Skip them and finish')}`;
   } else {
     h += btn('plain', 'Finish', true);
   }
@@ -974,11 +977,16 @@ const A = {
     ui.edit = null;
     ui.sheet = null;
     cancelToast();
-    A.finish();
+    const c0 = curW();
+    if (!c0 || c0.s.done) { render(); return; }
+    openSheet({ kind: 'finish', stale: true }); // after finishGo, ui.at = null shows next up
   },
   staleKeep: () => {
     const m = activeMeso(), st = staleSession(m, Date.now());
-    if (st) ui.keepGoing = `${m.id}:${st.key}:${st.t}`;
+    if (st) {
+      ui.keepGoing = `${m.id}:${st.key}:${st.t}`;
+      ui.staleOk.add(sessKey(m, st.w, st.d)); // and the first tick into it doesn't ask again
+    }
     render();
   },
   staleGo: () => {
