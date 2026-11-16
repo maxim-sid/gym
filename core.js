@@ -238,6 +238,7 @@
   }
 
   const hasContent = ss => !!ss && (ss.done || ss.slots.some(sl => sl.skip || sl.sets.some(x => x.done || x.skip || typedSet(x))));
+  const slotEmpty = sl => !sl.skip && !sl.from && !sl.sets.some(x => x.done || x.skip || typedSet(x));
   const typedSet = x => String(x.w ?? '').trim() !== '' || String(x.r ?? '').trim() !== '';
 
   // The data part of "Finish workout". changes: [{exId, from, to}] for next week's set counts (rp only).
@@ -252,13 +253,13 @@
     const changes = [];
     if (!isFixed(m) && !isDeload(m, w) && w + 1 < m.weeks) {
       m.days[d].exercises.forEach((slot, i) => {
-        // A swapped slot's feedback is about the substitute, so the planned exercise's count holds.
         // A swapped slot's feedback is about the substitute; a skipped one holds (never shrinks next week).
         const n = swappedFrom(m, d, s, i) || s.slots[i].skip ? base[i] : Math.max(1, Math.min(12, base[i] + setDelta(s.slots[i].fb)));
         slot.plan[w + 1] = n;
         if (n !== base[i]) changes.push({ exId: slot.exId, from: base[i], to: n });
         const next = m.log[`${w + 1}-${d}`];
-        if (next && !next.done && !next.slots[i].sets.some(x => x.done)) next.slots[i].sets = blankSets(n);
+        // Next week's stored slot takes the new count only while it's untouched (nothing typed, skipped or swapped).
+        if (next && !next.done && !next.skipped && next.slots[i] && slotEmpty(next.slots[i])) next.slots[i].sets = blankSets(n);
       });
     }
     s.done = true;

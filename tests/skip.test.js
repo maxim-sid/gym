@@ -113,3 +113,32 @@ test('swapToday on a skipped slot un-skips it (skipMarked goes too)', () => {
   C.swapToday(s, 0, 'b');
   assert.deepEqual(s.slots[0], { exId: 'b', from: 'a', sets: [blank()], fb: {} });
 });
+
+test('finish rewrites next week’s stored slot only while it is untouched', () => {
+  const m = meso('rp');
+  const s = C.session(m, 0, 0, true);
+  s.slots.forEach(sl => { sl.sets = sl.sets.map(() => set(60, 8)); sl.fb = { sore: 0, pump: 0, work: 0, joint: 0 }; }); // +2 each
+  const next = C.session(m, 1, 0, true);
+  next.slots[0].sets[0] = { w: '62', r: '', done: false };      // typed
+  next.slots[1].sets[0].skip = true;                            // a skipped set
+  const before = JSON.parse(JSON.stringify(next));
+  C.finishSession(m, 0, 0, s, 1000);
+  assert.deepEqual(next, before);
+  // ...a skipped slot, a swapped slot: also left; an untouched one takes the new count.
+  const m2 = meso('rp');
+  const s2 = C.session(m2, 0, 0, true);
+  s2.slots.forEach(sl => { sl.sets = sl.sets.map(() => set(60, 8)); sl.fb = { sore: 0, pump: 0, work: 0, joint: 0 }; });
+  const n2 = C.session(m2, 1, 0, true);
+  C.swapToday(n2, 0, 'zz');
+  C.finishSession(m2, 0, 0, s2, 1000);
+  assert.equal(n2.slots[0].sets.length, 3);
+  assert.equal(n2.slots[1].sets.length, 4);
+  const m3 = meso('rp');
+  const s3 = C.session(m3, 0, 0, true);
+  s3.slots.forEach(sl => { sl.sets = sl.sets.map(() => set(60, 8)); sl.fb = { sore: 0, pump: 0, work: 0, joint: 0 }; });
+  const n3 = C.session(m3, 1, 0, true);
+  C.skipSlot(n3.slots[1]);
+  C.finishSession(m3, 0, 0, s3, 1000);
+  assert.equal(n3.slots[1].sets.length, 2);
+  assert.equal(n3.slots[0].sets.length, 5);
+});
