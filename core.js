@@ -596,7 +596,7 @@
   }
   // Rest of block (2.3): the plan slot itself does newExId from now on. Today's session (todayKey, stored) goes
   // through swapToday; every other session of day d that isn't done or skipped and has no done set in slot i
-  // follows. Done sessions are never touched (history keeps what was lifted). clearNote empties the plan note.
+  // follows unless its slot has content (typed or skipped). Done sessions are never touched (history keeps what was lifted). clearNote empties the plan note.
   // → {snap} for restoreBlock | {error: 'done'|'same'|'missing'}
   function swapBlock(m, d, i, newExId, todayKey, { clearNote = false } = {}) {
     const slot = m.days[d]?.exercises[i];
@@ -608,6 +608,8 @@
     for (const [k, s] of Object.entries(m.log)) {
       const sl = s.slots[i];
       if (+k.split('-')[1] !== d || s.done || s.skipped || !sl || sl.sets.some(x => x.done)) continue;
+      // Other sessions keep a slot with anything in it (typed numbers, skips); only today's is cleared.
+      if (k !== todayKey && (sl.skip || sl.sets.some(x => x.skip || typedSet(x)))) continue;
       if (sl.exId === newExId && !sl.from) continue; // already doing it, as planned
       const before = snapSlot(sl);
       swapToday(s, i, newExId); // 'same' when it already does newExId (a today-only swap): only `from` goes

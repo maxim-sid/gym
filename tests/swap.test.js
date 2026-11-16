@@ -282,3 +282,23 @@ test('rp finish goes by from: a recorded swap holds the count, a plain slot prog
   assert.deepEqual(C.finishSession(m, 1, 0, s, 1000).changes.filter(c => c.exId === 'dips'), []);
   assert.equal(m.days[0].exercises[0].plan[2], 2);
 });
+
+test('swapBlock leaves an unfinished earlier session alone if its slot has typed numbers', () => {
+  const { m } = block();
+  m.log['2-0'].slots[0].sets[0] = { w: '25', r: '', done: false };          // typed only, never ticked
+  const before = JSON.parse(JSON.stringify(m.log['2-0']));
+  const r = C.swapBlock(m, 0, 0, 'ring', '1-0');
+  assert.deepEqual(m.log['2-0'], before);
+  assert.deepEqual(m.log['1-0'].slots[0].sets, [blank(), blank()]);        // today's typed 22 is still cleared
+  assert.deepEqual(Object.keys(r.snap.slots), ['1-0']);
+});
+
+test('swapBlock leaves another session alone if its slot (or a set in it) is skipped', () => {
+  const { m } = block();
+  m.log['5-0'] = { date: null, done: false, slots: [{ exId: 'dips', skip: true, sets: [blank()], fb: {} }, { exId: 'sq', sets: [], fb: {} }] };
+  m.log['6-0'] = { date: null, done: false, slots: [{ exId: 'dips', sets: [{ w: '', r: '', done: false, skip: true }], fb: {} }, { exId: 'sq', sets: [], fb: {} }] };
+  const before = JSON.parse(JSON.stringify(m.log));
+  C.swapBlock(m, 0, 0, 'ring', '1-0');
+  assert.deepEqual([m.log['5-0'], m.log['6-0']], [before['5-0'], before['6-0']]);
+  assert.equal(m.log['2-0'].slots[0].exId, 'ring');                         // an empty one still follows
+});
