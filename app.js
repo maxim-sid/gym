@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof restState !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof rebuildOpen !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -120,6 +120,21 @@ function cardWritable() {
   if (canWrite(session(m, w, d), sessKey(m, w, d), ui.edit)) return true;
   toast(refusal(session(m, w, d)));
   return false;
+}
+// A plan change from the card ⋯ sheet (2.9a): apply(slot, m, w, d, i) → toast text. Empty slots of open workouts
+// follow (rebuildOpen); Undo restores the plan slot and those slots. quiet: no re-render (a text field changed).
+function planChange(apply, focusSel, quiet) {
+  if (!cardWritable() || ui.sheet?.kind !== 'card') return;
+  const m = activeMeso(), { w, d } = ui.at, i = ui.sheet.i, slot = m.days[d]?.exercises[i];
+  if (!slot || !hasLogs(m) || m.log[`${w}-${d}`]?.done) return;
+  const snap = snapSlot(slot);
+  const msg = apply(slot, m, w, d, i);
+  if (JSON.stringify(slot) === JSON.stringify(snap)) { if (!quiet) render(); return; }
+  const rb = rebuildOpen(m);
+  save();
+  if (!quiet || rb.length) render();
+  if (focusSel) $(focusSel)?.focus();
+  toast(msg, { label: 'Undo', act: () => { restoreSlot(slot, snap); restoreRebuilt(m, rb); }, guard: () => activeMeso() === m });
 }
 const refusal = s => s?.skipped ? 'This workout was skipped — tap “Do it anyway” first' : 'Tap Edit to change a finished workout';
 
@@ -305,7 +320,9 @@ function viewPlan() {
       <div class="bar"><i style="width:${((done + skipped) / total) * 100}%"></i></div>
       <div class="row">
         ${m.id !== S.activeId ? `<button class="btn sm" data-act="activate" data-id="${m.id}">Make active</button>` : ''}
-        ${hasLogs(m) ? '' : `<button class="btn sm" data-act="editMeso" data-id="${m.id}">Edit</button>`}
+        ${hasLogs(m) ? (m.id === S.activeId ? '<button class="btn sm" data-act="editLive">Edit exercises</button>' : '')
+          : `<button class="btn sm" data-act="editMeso" data-id="${m.id}">Edit</button>`}
+        ${hasLogs(m) && canAddWeek(m) ? `<button class="btn sm" data-act="addWeek" data-id="${m.id}">+1 week</button>` : ''}
         <button class="btn sm" data-act="copyMeso" data-id="${m.id}">Copy</button>
         <button class="btn sm danger" data-act="delMeso" data-id="${m.id}">Delete</button>
       </div></div>`;
@@ -537,18 +554,33 @@ function sheetCard() {
   const skip = sl.skip ? `<button class="sact" data-act="unskipSlot" data-i="${i}">⤼ Unskip exercise</button>`
     : sl.sets.every(x => x.done) && logged ? ''
     : `<button class="sact" data-act="skipSlot">⤼ ${logged ? 'Skip the rest of this exercise' : 'Skip exercise'}</button>`;
-  // Rest for this exercise, rest of the block (the plan slot); not from a finished workout (Edit mode).
+  // PLAN rows (2.9a): change the plan slot from this workout on. Not from a finished workout (Edit mode). Sets,
+  // reps, notes and the rest-of-block swap only on a live block (with logs); before that, the builder's Edit does it.
+  // Rest (2.8) is here for every block, since the builder has no rest field.
   const slot = m.days[d].exercises[i], own = +slot?.rest > 0;
+  const live = hasLogs(m), fromW = planFromWeek(m, w, d);
   const restRow = s.done || !slot ? '' : `<div class="srow"><span>⏱ Rest${own ? '' : ' · default'}</span><div class="row nowrap rrow">
     <b class="rv">${fmtTime(restFor(m, d, i, S.settings))}</b>
     <button class="chip" data-act="cardRest" data-v="-15" aria-label="Rest 15 seconds shorter">−15</button>
     <button class="chip" data-act="cardRest" data-v="15" aria-label="Rest 15 seconds longer">+15</button>
     ${own ? '<button class="lnk" data-act="cardRest" data-v="reset">Reset to default</button>' : ''}</div></div>`;
+  const unitR = isTimed(ex, slot) ? 'sec' : 'reps';
+  const planRows = !live || s.done || !slot ? '' : `
+    <div class="srow prow"><span>Sets</span><div class="stepper">
+      <button data-act="planSets" data-v="-1" aria-label="One set fewer">−</button><b>${plannedSets(m, d, i, fromW)}</b>
+      <button data-act="planSets" data-v="1" aria-label="One set more">+</button></div></div>
+    <div class="srow prow"><span>Range (${unitR})</span><div class="row nowrap rrow">
+      <input class="rin" data-plan="lo" inputmode="numeric" value="${slot.reps ? slot.reps[0] : ''}" aria-label="Lowest ${unitR}" placeholder="–">
+      <span>–</span><input class="rin" data-plan="hi" inputmode="numeric" value="${slot.reps ? slot.reps[1] : ''}" aria-label="Highest ${unitR}" placeholder="–" enterkeyhint="done"></div></div>`;
+  const planNotes = !live || s.done || !slot ? '' : `
+    <div class="srow prow"><span>Notes</span><input data-plan="notes" value="${esc(slot.notes ?? '')}" placeholder="Plan note for this exercise" enterkeyhint="done" aria-label="Plan note"></div>
+    <button class="sact ${logged ? 'off' : ''}" data-act="swapOpen" data-mode="block" aria-disabled="${logged}">⇄ Swap for rest of block${logged ? ' — untick logged sets first' : ''}</button>`;
+  const planSec = s.done || !slot ? '' : `<div class="sgrp">Plan · from ${fromW === w ? 'this' : 'next'} workout on</div>${planRows}${restRow}${planNotes}`;
   return {
     title: esc(ex.name),
     body: `<button class="sact ${logged ? 'off' : ''}" data-act="swapOpen" aria-disabled="${logged}">⇄ ${logged ? 'Swap — untick logged sets first' : 'Swap exercise'}</button>${skip}
     <div class="srow"><span>Weight step · ${unit()}</span><div class="chips">${stepChoices(ex).map(v =>
-      `<button class="chip ${v === cur ? 'on' : ''}" data-act="cardStep" data-v="${v}" aria-pressed="${v === cur}">${v}</button>`).join('')}</div></div>${restRow}`,
+      `<button class="chip ${v === cur ? 'on' : ''}" data-act="cardStep" data-v="${v}" aria-pressed="${v === cur}">${v}</button>`).join('')}</div></div>${planSec}`,
   };
 }
 
@@ -734,7 +766,15 @@ function sheetSwapNote() {
   };
 }
 
-const SHEETS = { stale: sheetStale, week: sheetWeek, logNow: sheetLogNow, workout: sheetWorkout, finish: sheetFinish, card: sheetCard, swap: sheetSwap, swapNote: sheetSwapNote, set: sheetSet };
+function sheetTplAsk() {
+  if (!ui.draft) return null;
+  return {
+    title: `Replace this plan with “${esc(ui.sheet.t)}”?`,
+    body: '<p class="hint">The days and exercises you’ve set up here will be replaced.</p><button class="btn block primary" data-act="tplGo">Replace</button>',
+    focus: '[data-act=tplGo]',
+  };
+}
+const SHEETS = { tplAsk: sheetTplAsk, stale: sheetStale, week: sheetWeek, logNow: sheetLogNow, workout: sheetWorkout, finish: sheetFinish, card: sheetCard, swap: sheetSwap, swapNote: sheetSwapNote, set: sheetSet };
 
 // Shell shared by every sheet: title, body, Cancel at the bottom; the backdrop also cancels.
 function renderSheet() {
@@ -742,6 +782,7 @@ function renderSheet() {
   const sp = ui.sheet && SHEETS[ui.sheet.kind]();
   if (ui.sheet && !sp) ui.sheet = null;
   el.hidden = !sp;
+  document.body.classList.toggle('sheet-open', !!sp); // the toast moves above the sheet (its Undo stays tappable)
   el.dataset.focus = sp?.focus || '';
   el.innerHTML = sp ? `<div class="sheet-bg" data-act="sheetCancel"></div>
     <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title"><h2 id="sheet-title" tabindex="-1">${sp.title}</h2>${sp.body}
@@ -1015,12 +1056,23 @@ const A = {
     const m = activeMeso(), { w, d } = ui.at;
     openSheet({ kind: 'card', key: sessKey(m, w, d), i: +el.dataset.i }, `[data-act="cardMenu"][data-i="${el.dataset.i}"]`);
   },
-  swapOpen: () => {
+  swapOpen: el => {
     if (!cardWritable()) return;
     const m = activeMeso(), { w, d } = ui.at, { key, i, ret } = ui.sheet;
     if ((session(m, w, d) ?? blankSession(m, w, d)).slots[i]?.sets.some(x => x.done)) { toast('Untick the logged sets first to swap'); return; }
-    openSheet({ kind: 'swap', key, i, q: '', other: false, mode: 'today' }, ret);
+    openSheet({ kind: 'swap', key, i, q: '', other: false, mode: el?.dataset?.mode === 'block' ? 'block' : 'today' }, ret);
   },
+  planSets: el => planChange((slot, m, w, d, i) => {
+    const fromW = planFromWeek(m, w, d);
+    setPlanSets(m, d, i, fromW, plannedSets(m, d, i, fromW) + +el.dataset.v);
+    return `Sets from week ${fromW + 1}: ${plannedSets(m, d, i, fromW)}`;
+  }, `#sheet [data-act=planSets][data-v="${el.dataset.v}"]`),
+  // Reps range / plan note fields: saved on change (blur or Enter), without a re-render so the next field keeps focus.
+  planField: t => planChange(slot => {
+    if (t.dataset.plan === 'notes') { slot.notes = t.value.trim(); return 'Plan note saved'; }
+    slot.reps = parseRange($('#sheet [data-plan=lo]')?.value, $('#sheet [data-plan=hi]')?.value);
+    return slot.reps ? `Range: ${repsTxt(slot.reps)}` : 'No range';
+  }, null, true),
   swapMode: el => { ui.sheet.mode = el.dataset.v; render(); $(`#sheet [data-act=swapMode][data-v="${el.dataset.v}"]`)?.focus(); },
   swapNoteGo: el => doSwap(ui.sheet.pick, el.dataset.clear === '1'),
   swapOther: () => { ui.sheet.other = true; redrawSwapList(); $('#swapother')?.focus(); },
@@ -1338,6 +1390,21 @@ const A = {
     render();
     window.scrollTo(0, 0);
   },
+  // A live block is edited per exercise from its workouts: open the next one (card ⋯ → PLAN rows).
+  editLive: () => {
+    ui.tab = 'today'; ui.at = null; ui.edit = null; ui.sheet = null; cancelToast(); render(); window.scrollTo(0, 0);
+    toast('Tap ⋯ on an exercise to change its plan');
+  },
+  addWeek: el => {
+    const m = S.mesos.find(x => x.id === el.dataset.id);
+    const r = m && addWeek(m);
+    if (!r || r.error) return;
+    if (m.id === S.activeId) ui.at = null;
+    save();
+    render();
+    toast(`${m.weeks} weeks${m.deload ? ' + deload' : ''}`, { label: 'Undo', act: () => { restoreWeek(m, r.snap); if (m.id === S.activeId) ui.at = null; },
+      guard: () => !Object.keys(m.log).some(k => +k.split('-')[0] >= r.snap.weeks) }); // nothing logged in the added week yet
+  },
   editMeso: el => { ui.draft = draftFrom(S.mesos.find(m => m.id === el.dataset.id), el.dataset.id); render(); window.scrollTo(0, 0); },
   copyMeso: el => { ui.draft = draftFrom(S.mesos.find(m => m.id === el.dataset.id)); render(); window.scrollTo(0, 0); },
   activate: el => { S.activeId = el.dataset.id; ui.at = null; save(); render(); },
@@ -1351,7 +1418,12 @@ const A = {
     render();
   },
 
-  template: el => { applyTemplate(ui.draft, el.dataset.t); save(); render(); },
+  // F24: a template replaces the draft's days, so it asks first when there's something to lose.
+  template: el => {
+    if (ui.draft.days.some(d => d.exercises.length)) { openSheet({ kind: 'tplAsk', t: el.dataset.t }, `[data-act=template][data-t="${el.dataset.t}"]`); return; }
+    applyTemplate(ui.draft, el.dataset.t); save(); render();
+  },
+  tplGo: () => { const t = ui.sheet?.t; ui.sheet = null; if (t && ui.draft) applyTemplate(ui.draft, t); save(); render(); },
   style: el => { ui.draft.style = el.dataset.v; render(); },
   type: el => {
     const sl = ui.draft.days[+el.dataset.d].exercises[+el.dataset.i];
@@ -1579,6 +1651,7 @@ document.addEventListener('focusout', e => { if (e.target.dataset?.rename) commi
 
 document.addEventListener('change', e => {
   const t = e.target;
+  if (t.dataset.plan) { A.planField(t); return; }
   if (t.dataset.bind && (t.tagName === 'SELECT' || t.type === 'checkbox')) onBind(t);
 });
 
