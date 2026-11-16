@@ -415,7 +415,8 @@
   function lastPerf(S, exId, { exclude = null, occurrence = 0, before = Infinity } = {}) {
     for (const { m, w, d, s } of allSessions(S)) {
       if (s === exclude || !(s.date < before) || isDeload(m, w)) continue;
-      const hits = s.slots.filter(sl => sl.exId === exId && countedSets(sl).length);
+      // For a later occurrence, past slots where exId was only a substitute don't count (they'd shift the index).
+      const hits = s.slots.filter((sl, k) => sl.exId === exId && countedSets(sl).length && (!occurrence || !swappedFrom(m, d, s, k)));
       if (!hits.length) continue;
       const sl = hits[Math.min(occurrence, hits.length - 1)];
       return { date: s.date, sets: countedSets(sl), note: sl.note ?? '', m, w, d };

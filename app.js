@@ -481,7 +481,7 @@ function swapListHtml(ex) {
   const g = swapCandidates(S, ex.id, ui.sheet.q);
   const row = (e, right) => `<button class="sitem" data-act="swapPick" data-id="${e.id}"><span>${esc(e.name)}</span>${right ? `<span class="muted">${right}</span>` : ''}</button>`;
   const head = (t, extra = '') => `<div class="sgrp" ${extra}>${t}</div>`;
-  let h = g.add ? `<button class="sitem add" data-act="swapAdd">+ Add “${esc(g.add)}” (${esc(g.muscle)})</button>` : '';
+  let h = '';
   if (g.recent.length) h += head(`Recent · ${esc(g.muscle)}`) + g.recent.map(r => row(r.ex, fmtDate(r.date))).join('');
   if (g.all.length) h += head(`All ${esc(g.muscle)}`) + g.all.map(e => row(e)).join('');
   if (g.other.length) {
@@ -489,6 +489,8 @@ function swapListHtml(ex) {
       ? head('Other muscles', 'id="swapother" tabindex="-1"') + g.other.map(o => head(esc(o.muscle), 'class="sgrp sub"') + o.items.map(e => row(e)).join('')).join('')
       : '<button class="sitem" data-act="swapOther" aria-expanded="false"><span>Other muscles</span><span aria-hidden="true">›</span></button>';
   }
+  // Add goes last, so Enter (first row on screen) picks a real match whenever there is one.
+  if (g.add) h += `<button class="sitem add" data-act="swapAdd">+ Add “${esc(g.add)}” (${esc(g.muscle)})</button>`;
   return h || '<p class="hint">No other exercises match.</p>';
 }
 const redrawSwapList = () => { const ex = exById((session(activeMeso(), ui.at.w, ui.at.d) ?? blankSession(activeMeso(), ui.at.w, ui.at.d)).slots[ui.sheet.i]?.exId); if (ex) $('#swaplist').innerHTML = swapListHtml(ex); };
@@ -1062,7 +1064,7 @@ document.addEventListener('keydown', e => {
   // Enter / Search in the swap field: the first result, or Add when that's the only row.
   if (e.key === 'Enter' && 'swapq' in (t.dataset || {})) {
     e.preventDefault();
-    if (t.value.trim()) ($('#swaplist [data-act=swapPick]') || $('#swaplist [data-act=swapAdd]'))?.click();
+    if (t.value.trim()) $('#swaplist [data-act=swapPick], #swaplist [data-act=swapAdd]')?.click(); // first row on screen
     return;
   }
   if (e.key === 'Escape' && ui.sheet) { closeSheet(); return; }

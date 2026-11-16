@@ -133,3 +133,15 @@ test('occurrenceOf: counts earlier unswapped slots of the same exercise; a swapp
   assert.equal(C.occurrenceOf(m, 0, s, 2), 0);     // and it doesn't shift the planned dips slot
   assert.equal(C.occurrenceOf(m, 0, s, 3), 0);
 });
+
+test('lastPerf: a later occurrence skips past slots where the exercise was only a substitute', () => {
+  const S = state(), m = S.mesos[0];
+  const plan = ['dips', 'sq', 'incl', 'dips'];
+  m.days[0].exercises = plan.map(exId => ({ exId, plan: [1], reps: [6, 8], type: 'main' }));
+  // Last time: slot 2 (planned incline) was swapped to dips at 5 kg; the planned dips slots did 20 and 10.
+  m.log = { '0-0': { date: 500, done: true, slots: [
+    { exId: 'dips', sets: [set(20, 8)] }, { exId: 'sq', sets: [set(100, 8)] }, { exId: 'dips', sets: [set(5, 12)] }, { exId: 'dips', sets: [set(10, 12)] },
+  ] } };
+  assert.deepEqual(C.lastPerf(S, 'dips', { occurrence: 1 }).sets, [set(10, 12)]);  // not the substitute's 5 kg
+  assert.deepEqual(C.lastPerf(S, 'dips').sets, [set(20, 8)]);
+});
