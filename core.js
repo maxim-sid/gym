@@ -385,6 +385,18 @@
     return sl.sets.length > 1 && !last.done && !last.skip && last.w === '' && last.r === '';
   }
 
+  /* ---------- current card (2.6) ---------- */
+  // A slot still has work while it isn't skipped and has an undone, unskipped set.
+  const slotOpen = sl => !sl.skip && sl.sets.some(x => !x.done && !x.skip);
+  // The card to show expanded: the slot of the most recently ticked set (by t) if it still has work, else the
+  // first slot with work. → index, or -1 when nothing is left.
+  function currentSlot(s) {
+    let best = -1, bt = -Infinity;
+    s.slots.forEach((sl, i) => sl.sets.forEach(x => { if (x.done && typeof x.t === 'number' && x.t > bt) { bt = x.t; best = i; } }));
+    if (best >= 0 && slotOpen(s.slots[best])) return best;
+    return s.slots.findIndex(slotOpen);
+  }
+
   /* ---------- skip / discard a workout (2.5) ---------- */
   // Sets a Discard would delete: done or with numbers typed.
   const loggedSets = s => s.slots.reduce((n, sl) => n + sl.sets.filter(x => x.done || typedSet(x)).length, 0);
@@ -761,6 +773,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

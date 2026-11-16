@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof skipWorkout !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof currentSlot !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -46,7 +46,7 @@ const boot = loadState(store, Date.now());
 let mode = boot.mode;
 const readOnly = mode === 'readOnly';
 let S = boot.state;
-const ui = { tab: 'today', at: null, draft: null, progEx: null, edit: null, sheet: null, renaming: null }; // edit: session key while editing a finished workout (not persisted)
+const ui = { tab: 'today', at: null, draft: null, progEx: null, edit: null, sheet: null, renaming: null, open: new Set(), openKey: null }; // edit: session key while editing a finished workout (not persisted)
 
 function save() {
   if (mode !== 'ok') return;
@@ -98,6 +98,11 @@ const activeMeso = () => S.mesos.find(m => m.id === S.activeId);
 const sessKey = (m, w, d) => `${m.id}:${w}-${d}`;
 // Editing a finished workout is on for this session only.
 const editing = (m, w, d) => ui.edit === sessKey(m, w, d);
+// Cards the user expanded (2.6), for the workout on screen only: another workout starts with none.
+function openCards(key) {
+  if (ui.openKey !== key) { ui.open = new Set(); ui.openKey = key; }
+  return ui.open;
+}
 
 // The ONE entry for every write to the open workout: refuses a finished workout unless Edit is on for it,
 // and stores the session first if it was only shown (virtual). → {m, s, w, d} | null
@@ -158,25 +163,8 @@ function viewToday() {
   const wkMore = s && !s.done && !s.skipped
     ? `<button class="icon more wkmore" data-act="wkMenu" aria-label="More for ${esc(day.name)}">⋯</button>` : '';
   let h = `<header class="top">${wkMore}<div class="eyebrow">${esc(m.name)}</div><h1>${esc(day.name)}</h1>
-    <div class="meta">Week ${w + 1} of ${tw}${day.weekday != null ? ` · ${WEEKDAYS[day.weekday]}` : ''}${deload ? ' · ' + effort : effort}</div>
+    <div class="meta"><button class="wkbtn" data-act="weekSheet" aria-haspopup="dialog">Week ${w + 1} of ${tw}${day.weekday != null ? ` · ${WEEKDAYS[day.weekday].slice(0, 3)}` : ''} <span aria-hidden="true">▾</span></button>${deload ? ' · ' + effort : effort}</div>
     ${day.notes ? `<p class="hint">${esc(day.notes)}</p>` : ''}</header>`;
-
-  h += '<div class="picker">';
-  for (let ww = 0; ww < tw; ww++) {
-    h += `<div class="wk"><span>${isDeload(m, ww) ? 'Deload' : `W${ww + 1}`}</span>`;
-    dayOrder(m).forEach(di => {
-      const ss = m.log[`${ww}-${di}`];
-      // State is shown by a glyph and in the label too, not by colour alone: ✓ done, • started.
-      const state = ss?.done ? 'done' : ss?.skipped ? 'skipped' : hasContent(ss) ? 'started' : '';
-      const here = ww === w && di === d;
-      const wd = m.days[di].weekday;
-      const label = `Week ${ww + 1} ${m.days[di].name}${state ? `, ${state}` : ''}${here ? ', shown' : ''}`;
-      h += `<button class="dot ${here ? 'cur' : ''} ${state}" data-act="goto" data-w="${ww}" data-d="${di}" aria-label="${esc(label)}" ${here ? 'aria-current="true"' : ''}>${
-        state === 'done' ? '✓' : state === 'started' ? '•' : state === 'skipped' ? '–' : ''}${wd != null ? WEEKDAYS[wd].slice(0, 2) : di + 1}</button>`;
-    });
-    h += '</div>';
-  }
-  h += '</div>';
 
   if (m.complete) h += `<div class="banner">Mesocycle complete 🎉 Start a new one from the Plan tab.</div>`;
 
@@ -188,12 +176,10 @@ function viewToday() {
     return h + `<div class="banner skipb row between"><span>Skipped ${fmtDate(s.skippedAt)}</span>
       <button class="btn sm" data-act="doAnyway">Do it anyway</button></div>${preview}`;
   }
+  // Not next and not stored: a read-only preview. Logging it now asks first (it fixes its set counts early).
   if (!s) {
-    h += `${preview}<button class="btn primary block" data-act="start">Start this workout</button>`;
-    if (!m.complete) {
-      h += `<p class="hint">Next up: Week ${m.pos.w + 1}, ${esc(m.days[m.pos.d].name)}.
-        <button class="btn sm" data-act="goto" data-w="${m.pos.w}" data-d="${m.pos.d}">Go there</button></p>`;
-    }
+    h += `${preview}<button class="btn block" data-act="logNow">Log this one now</button>`;
+    if (!m.complete) h += nextUpBtn(m);
     return h;
   }
 
@@ -204,6 +190,10 @@ function viewToday() {
       <button class="btn sm" data-act="${ro ? 'editOn' : 'editOff'}">${ro ? 'Edit' : 'Done editing'}</button></div>`;
   }
 
+  // 2.6: only the current card (and cards the user opened) is expanded; the rest are one-line rows.
+  // A finished workout starts all collapsed (also in Edit). Feedback still to answer keeps a card open.
+  const cur = s.done ? -1 : currentSlot(s);
+  const opened = openCards(sessKey(m, w, d));
   s.slots.forEach((sl, i) => {
     const { sl: _sl, ex, meta, last, hitTop, weighted, step, suggest } = slotCtx(m, w, d, s, i);
     // ↑ chip: explicit "+step" for the untouched sets (no longer baked into the suggestion, F15).
@@ -216,9 +206,16 @@ function viewToday() {
           <button class="icon more" data-act="cardMenu" data-i="${i}" aria-label="More for ${esc(ex?.name)}">⋯</button></div>`}</div></div>`;
       return;
     }
+    const showFb = !ro && !from && sl.sets.some(x => x.done) && sl.sets.every(x => x.done || x.skip) && !deload && !isFixed(m);
+    const fbPending = showFb && FEEDBACK.some(q => sl.fb[q.k] == null);
+    const isCur = i === cur;
+    if (!isCur && !fbPending && !opened.has(i)) { h += cardRow(sl, i, ex, meta, last); return; }
     const chip = hitTop && weighted && !ro
       ? `<button class="chip bump ${bumpOn(_sl) ? 'on' : ''}" data-act="bump" data-i="${i}">+${step} ${unit()}</button>` : '';
-    h += `<div class="card"><div class="exhead"><div><h2>${esc(ex?.name)}</h2>
+    // An expanded card that isn't current collapses again from its header.
+    const title = isCur || fbPending ? esc(ex?.name)
+      : `<button class="chead" data-act="cardToggle" data-i="${i}" aria-expanded="true">${esc(ex?.name)}</button>`;
+    h += `<div class="card ${isCur ? 'cur' : ''}" data-slot="${i}"><div class="exhead"><div><h2>${title}</h2>
       ${from && (!s.done || editing(m, w, d)) ? `<div class="swapped">instead of ${esc(exById(from)?.name)}${ro || sl.sets.some(x => x.done) ? ''
         : ` · <button class="lnk" data-act="unswap" data-i="${i}">Undo swap</button>`}</div>` : ''}
       <div class="tags"><span class="tag">${esc(ex?.muscle)}</span>${meta.type === 'main' ? '<span class="tag main">Main</span>' : ''}
@@ -247,13 +244,34 @@ function viewToday() {
       <button class="btn sm ${canRemoveLastSet(sl) ? '' : 'off'}" data-act="rmSet" data-i="${i}" aria-disabled="${!canRemoveLastSet(sl)}">− Set</button></div>`;
     // Feedback once every set is done or skipped (one done at least). Not for a swapped slot: it never changes
     // the planned exercise's set count. (A skipped exercise has no card body at all.)
-    if (!ro && !from && sl.sets.some(x => x.done) && sl.sets.every(x => x.done || x.skip) && !deload && !isFixed(m)) h += fbHtml(sl, i);
+    if (showFb) h += fbHtml(sl, i);
     h += '</div>';
   });
 
   if (!s.done) h += `<button class="btn primary block" data-act="finish">Finish workout</button>`;
   return h;
 }
+
+// A collapsed card: "✓ Name  summary ›" when its sets are done, else "Name  3×8–10 · last time ›". Tap to open.
+function cardRow(sl, i, ex, meta, last) {
+  const name = esc(ex?.name);
+  const nd = sl.sets.filter(x => x.done).length;
+  const finished = nd > 0 && !slotOpen(sl);
+  let sum;
+  if (finished) sum = esc(fmtSets(countedSets(sl), ex, unit()));
+  else {
+    const target = meta.reps ? `${sl.sets.length}×${repsTxt(meta.reps, isTimed(ex, meta))}` : `${sl.sets.length} sets`;
+    const lastTxt = last ? fmtSets(last.sets, ex, unit()) : '';
+    sum = esc(nd ? `${nd}/${sl.sets.length} done` : sl.sets.length ? target : 'not done'); // a finished workout drops unused sets
+    // Last time only when the row still fits on one line at phone width.
+    if (!nd && lastTxt && (ex?.name || '').length + target.length + lastTxt.length <= 34) sum += ` · ${esc(lastTxt)}`;
+  }
+  return `<div class="card crow ${finished ? 'cdone' : ''}" data-slot="${i}"><button class="ctoggle" data-act="cardToggle" data-i="${i}" aria-expanded="false"
+    aria-label="${name}${finished ? ', done' : ''}: ${sum}. Show sets"><span class="cname">${finished ? '<span class="okmark" aria-hidden="true">✓</span>' : ''}${name}</span>
+    <span class="csum">${sum}</span><span class="chev" aria-hidden="true">›</span></button></div>`;
+}
+
+const nextUpBtn = m => `<button class="btn block" data-act="goto" data-w="${m.pos.w}" data-d="${m.pos.d}">Next up: Week ${m.pos.w + 1}, ${esc(m.days[m.pos.d].name)}</button>`;
 
 function fbHtml(sl, i) {
   return `<div class="fb"><div class="fbtitle">How did that go?</div>${FEEDBACK.map(q =>
@@ -444,6 +462,15 @@ function viewRecovery() {
 
 const VIEWS = { today: viewToday, plan: viewPlan, progress: viewProgress, exercises: viewExercises, settings: viewSettings };
 
+// After a tick moves the current card: bring the new one to the top, unless the user scrolled in the last 2 s.
+let lastUserScroll = 0;
+['touchmove', 'wheel'].forEach(ev => addEventListener(ev, () => { lastUserScroll = Date.now(); }, { passive: true }));
+function scrollToCurrent(before, after) {
+  if (after < 0 || after === before || Date.now() - lastUserScroll < 2000) return;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  $(`#main .card[data-slot="${after}"]`)?.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+}
+
 /* ---------- bottom sheet ---------- */
 // One sheet at a time, rendered from ui.sheet = {kind}. Built from the current data on every render.
 
@@ -489,6 +516,41 @@ function sheetCard() {
     body: `<button class="sact ${logged ? 'off' : ''}" data-act="swapOpen" aria-disabled="${logged}">⇄ ${logged ? 'Swap — untick logged sets first' : 'Swap exercise'}</button>${skip}
     <div class="srow"><span>Weight step · ${unit()}</span><div class="chips">${stepChoices(ex).map(v =>
       `<button class="chip ${v === cur ? 'on' : ''}" data-act="cardStep" data-v="${v}" aria-pressed="${v === cur}">${v}</button>`).join('')}</div></div>`,
+  };
+}
+
+// Week picker sheet (2.6): the weeks × days grid, plus Next up.
+function sheetWeek() {
+  const m = activeMeso(), { w, d } = ui.at;
+  let h = '<div class="picker">';
+  for (let ww = 0; ww < totalWeeks(m); ww++) {
+    h += `<div class="wk"><span>${isDeload(m, ww) ? 'Deload' : `W${ww + 1}`}</span>`;
+    dayOrder(m).forEach(di => {
+      const ss = m.log[`${ww}-${di}`];
+      // State is shown by a glyph and in the label too, not by colour alone: ✓ done, • started, – skipped.
+      const state = ss?.done ? 'done' : ss?.skipped ? 'skipped' : hasContent(ss) ? 'started' : '';
+      const here = ww === w && di === d;
+      const wd = m.days[di].weekday;
+      const label = `Week ${ww + 1} ${m.days[di].name}${state ? `, ${state}` : ''}${here ? ', shown' : ''}`;
+      h += `<button class="dot ${here ? 'cur' : ''} ${state}" data-act="goto" data-w="${ww}" data-d="${di}" aria-label="${esc(label)}" ${here ? 'aria-current="true"' : ''}>${
+        state === 'done' ? '✓' : state === 'started' ? '•' : state === 'skipped' ? '–' : ''}${wd != null ? WEEKDAYS[wd].slice(0, 2) : di + 1}</button>`;
+    });
+    h += '</div>';
+  }
+  h += '</div>';
+  if (!m.complete) h += nextUpBtn(m);
+  return { title: esc(m.name), body: h, focus: '.dot.cur' };
+}
+
+// "Log this one now" on a workout that isn't next: asks first.
+function sheetLogNow() {
+  const m = activeMeso(), { w, d } = ui.at;
+  if (ui.sheet.key !== sessKey(m, w, d) || session(m, w, d)) return null;
+  return {
+    title: `Week ${w + 1} · ${esc(m.days[d].name)} isn't next`,
+    body: `<p class="hint">Set counts may still change based on your feedback in earlier workouts.</p>
+      <button class="btn block primary" data-act="start">Log it now</button>`,
+    focus: '[data-act=start]',
   };
 }
 
@@ -610,7 +672,7 @@ function sheetSwapNote() {
   };
 }
 
-const SHEETS = { workout: sheetWorkout, finish: sheetFinish, card: sheetCard, swap: sheetSwap, swapNote: sheetSwapNote, set: sheetSet };
+const SHEETS = { week: sheetWeek, logNow: sheetLogNow, workout: sheetWorkout, finish: sheetFinish, card: sheetCard, swap: sheetSwap, swapNote: sheetSwapNote, set: sheetSet };
 
 // Shell shared by every sheet: title, body, Cancel at the bottom; the backdrop also cancels.
 function renderSheet() {
@@ -843,7 +905,17 @@ const A = {
     ui.edit = null;
     render();
   },
-  start: () => { const { m, w, d } = { m: activeMeso(), ...ui.at }; session(m, w, d, true); save(); render(); },
+  start: () => { const { m, w, d } = { m: activeMeso(), ...ui.at }; ui.sheet = null; session(m, w, d, true); save(); render(); },
+  weekSheet: () => openSheet({ kind: 'week' }, '[data-act=weekSheet]'),
+  logNow: () => { const m = activeMeso(); openSheet({ kind: 'logNow', key: sessKey(m, ui.at.w, ui.at.d) }, '[data-act=logNow]'); },
+  // Expand/collapse a card (layout only; nothing is written).
+  cardToggle: el => {
+    const m = activeMeso(), i = +el.dataset.i;
+    const o = openCards(sessKey(m, ui.at.w, ui.at.d));
+    if (o.has(i)) o.delete(i); else o.add(i);
+    render();
+    $(`[data-act=cardToggle][data-i="${i}"]`)?.focus();
+  },
 
   set: el => {
     const c0 = curW();
@@ -861,10 +933,13 @@ const A = {
       toast(r.error === 'weight' ? 'Enter the weight (or mark it BW in Exercises)' : 'Enter reps (more than 0)');
       return;
     }
+    const cur0 = currentSlot(s);
     tickSet(st, r, Date.now());
+    if (!slotOpen(s.slots[i])) openCards(sessKey(m, ui.at.w, d)).delete(i); // its last set: collapse it
     save();
     if (!s.done) startRest(m.days[d].exercises[i].type, { w: ui.at.w, d, i, j }); // never while editing a finished one
     render();
+    if (!s.done) scrollToCurrent(cur0, currentSlot(s));
   },
   // Set number: a done set can be unticked (confirm). Undone sets get Skip / Warm-up with the set sheet (2.1).
   // ↑ chip: tap writes last+step and the bottom of the range into untouched sets; tap again clears them.
@@ -1019,7 +1094,8 @@ const A = {
     if (el.dataset.mode !== 'plain' && typed.length) {
       const accept = (i, j) => { const x = slotCtx(m, w, d, s, i); return acceptSet(s.slots[i].sets[j], x.suggest(j), x.ex); };
       const res = applyTyped(s, typed, accept, el.dataset.mode, Date.now());
-      if (res.error) { // nothing changed: show the set that needs a value
+      if (res.error) { // nothing changed: show the set that needs a value (opening its card)
+        openCards(sessKey(m, w, d)).add(res.i);
         render();
         const inp = $(`input[data-i="${res.i}"][data-j="${res.j}"][data-f="${res.error === 'weight' ? 'w' : 'r'}"]`);
         inp?.classList.add('bad');

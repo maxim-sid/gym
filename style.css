@@ -39,6 +39,18 @@ input::placeholder { color: var(--ph); opacity: 1; font-weight: 400; }
 .top { position: relative; }
 .wkmore { position: absolute; top: 2px; right: -8px; }
 .top .eyebrow, .top h1 { padding-right: 40px; }
+.wkbtn { min-height: 44px; padding: 0 4px 0 0; color: var(--text); font-weight: 600; font-size: 14px; }
+.card { scroll-margin-top: 10px; }
+.card.cur { border-left: 3px solid var(--acc); }
+.card.crow { padding: 0; margin-bottom: 8px; }
+.ctoggle { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 0 12px 0 14px; text-align: left; }
+.cname { flex: 0 1 auto; max-width: 65%; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cdone .cname { color: var(--muted); }
+.okmark { color: var(--ok); margin-right: 6px; }
+.csum { flex: 1 1 0; min-width: 0; text-align: right; color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chev { color: var(--muted); font-size: 20px; flex: none; }
+.chead { text-align: left; min-height: 44px; font: inherit; padding: 0; }
+#sheet .picker { margin: 6px 0 14px; }
 .dot.skipped { border-style: dashed; border-color: var(--field); color: var(--muted); background: transparent; }
 .empty { text-align: center; padding: 56px 8px; }
 .empty p { color: var(--muted); margin-bottom: 24px; }
