@@ -40,7 +40,6 @@ input::placeholder { color: var(--ph); opacity: 1; font-weight: 400; }
 
 .btn { background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; font-weight: 600; }
 .btn.primary { background: var(--acc); border-color: var(--acc); color: var(--on-acc); }
-.btn.danger { color: var(--bad); }
 .btn.sm { padding: 7px 12px; font-size: 14px; border-radius: 10px; min-height: 44px; }
 .btn.off { opacity: .4; }
 .btn.block { display: block; width: 100%; margin: 0 0 12px; }
@@ -66,6 +65,13 @@ input::placeholder { color: var(--ph); opacity: 1; font-weight: 400; }
 .setgrid input { text-align: center; padding: 10px 4px; font-variant-numeric: tabular-nums; font-weight: 600; }
 .setgrid input.d { background: rgba(56,217,122,.20); border-color: transparent; color: var(--ok); font-weight: 700; } /* ok on it: 5.7:1 */
 .setgrid input.sk { opacity: .45; text-decoration: line-through; }
+.setgrid .n.sk { font-size: 20px; color: var(--muted); border: 1px dashed var(--field); }
+.skipcard { padding-top: 4px; padding-bottom: 4px; }
+.skipcard .row { margin-top: 0; }
+.skline { color: var(--muted); padding: 10px 0; overflow-wrap: anywhere; }
+.skline b { color: var(--text); font-weight: 600; }
+.row.nowrap { flex-wrap: nowrap; gap: 0; align-items: center; }
+.btn.danger { color: var(--bad); }
 .chk.sk { font-size: 11px; color: var(--muted); border-style: dashed; }
 .setgrid input.bad { border-color: var(--bad); box-shadow: 0 0 0 1px var(--bad); }
 .chk { height: 44px; border-radius: 10px; background: var(--card2); border: 1px solid var(--field); color: var(--muted); font-size: 18px; }

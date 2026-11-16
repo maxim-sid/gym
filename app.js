@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof swapBlock !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof skipSlot !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -199,6 +199,14 @@ function viewToday() {
     const { sl: _sl, ex, meta, last, hitTop, weighted, step, suggest } = slotCtx(m, w, d, s, i);
     // ↑ chip: explicit "+step" for the untouched sets (no longer baked into the suggestion, F15).
     const from = swappedFrom(m, d, s, i); // planned exercise when this slot does another one today
+    if (sl.skip) { // skipped exercise: one line; done sets stay counted
+      const nd = sl.sets.filter(x => x.done).length;
+      h += `<div class="card skipcard"><div class="row between"><div class="skline"><span aria-hidden="true">⤼</span> <b>${esc(ex?.name)}</b> — skipped${
+        nd ? ` <span class="muted">· ${nd} set${nd === 1 ? '' : 's'} done</span>` : ''}</div>
+        ${ro ? '' : `<div class="row nowrap"><button class="lnk" data-act="unskipSlot" data-i="${i}" aria-label="Undo skip ${esc(ex?.name)}">Undo</button>
+          <button class="icon more" data-act="cardMenu" data-i="${i}" aria-label="More for ${esc(ex?.name)}">⋯</button></div>`}</div></div>`;
+      return;
+    }
     const chip = hitTop && weighted && !ro
       ? `<button class="chip bump ${bumpOn(_sl) ? 'on' : ''}" data-act="bump" data-i="${i}">+${step} ${unit()}</button>` : '';
     h += `<div class="card"><div class="exhead"><div><h2>${esc(ex?.name)}</h2>
@@ -215,19 +223,22 @@ function viewToday() {
     sl.sets.forEach((st, j) => {
       const { w: pw, r: pr } = suggest(j);
       const dc = st.done ? 'd' : st.skip ? 'sk' : '';
-      const roA = ro ? 'readonly tabindex="-1"' : '';
-      h += (ro ? `<span class="n ${st.done ? 'd' : ''}">${st.done ? '✓' : ''}${j + 1}</span>`
+      const sk = !st.done && st.skip;
+      const roA = ro || sk ? 'readonly tabindex="-1"' : '';
+      h += (ro ? `<span class="n ${st.done ? 'd' : ''}">${st.done ? '✓' : sk ? '–' : ''}${j + 1}</span>`
+        : sk ? `<button class="n sk" data-act="unskipSet" data-i="${i}" data-j="${j}" aria-label="Set ${j + 1} skipped. Unskip">↺</button>`
         : `<button class="n ${st.done ? 'd' : ''}" data-act="setNum" data-i="${i}" data-j="${j}" aria-label="Set ${j + 1} options">${st.done ? '✓' : ''}${j + 1}</button>`)
-        + `<input class="${dc}" inputmode="decimal" data-i="${i}" data-j="${j}" data-f="w" value="${esc(st.w)}" placeholder="${ro ? '' : pw}" ${roA} enterkeyhint="next" aria-label="Set ${j + 1} weight">
-        <input class="${dc}" inputmode="numeric" data-i="${i}" data-j="${j}" data-f="r" value="${esc(st.r)}" placeholder="${ro ? '' : pr}" ${roA} enterkeyhint="done" aria-label="Set ${j + 1} reps">`
-        + (ro ? `<span class="chk static ${st.done ? 'on' : st.skip ? 'sk' : ''}" aria-label="${st.done ? 'Done' : st.skip ? 'Skipped' : 'Not done'}">${st.done ? '✓' : st.skip ? 'skipped' : ''}</span>`
+        + `<input class="${dc}" inputmode="decimal" data-i="${i}" data-j="${j}" data-f="w" value="${esc(st.w)}" placeholder="${ro || sk ? '' : pw}" ${roA} enterkeyhint="next" aria-label="Set ${j + 1} weight">
+        <input class="${dc}" inputmode="numeric" data-i="${i}" data-j="${j}" data-f="r" value="${esc(st.r)}" placeholder="${ro || sk ? '' : pr}" ${roA} enterkeyhint="done" aria-label="Set ${j + 1} reps">`
+        + (ro || sk ? `<span class="chk static ${st.done ? 'on' : st.skip ? 'sk' : ''}" aria-label="${st.done ? 'Done' : st.skip ? 'Skipped' : 'Not done'}">${st.done ? '✓' : st.skip ? 'skipped' : ''}</span>`
           : `<button class="chk ${st.done ? 'on' : ''}" data-act="set" data-i="${i}" data-j="${j}" aria-label="Done">✓</button>`);
     });
     h += '</div>';
     if (!ro) h += `<div class="row"><button class="btn sm" data-act="addSet" data-i="${i}">+ Set</button>
       <button class="btn sm ${canRemoveLastSet(sl) ? '' : 'off'}" data-act="rmSet" data-i="${i}" aria-disabled="${!canRemoveLastSet(sl)}">− Set</button></div>`;
-    // No feedback for a swapped slot: it never changes the planned exercise's set count.
-    if (!ro && !from && sl.sets.length && sl.sets.every(x => x.done) && !deload && !isFixed(m)) h += fbHtml(sl, i);
+    // Feedback once every set is done or skipped (one done at least). Not for a swapped slot: it never changes
+    // the planned exercise's set count. (A skipped exercise has no card body at all.)
+    if (!ro && !from && sl.sets.some(x => x.done) && sl.sets.every(x => x.done || x.skip) && !deload && !isFixed(m)) h += fbHtml(sl, i);
     h += '</div>';
   });
 
@@ -444,7 +455,7 @@ function sheetFinish() {
     h += btn('plain', 'Finish', true);
   }
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
-  const tidy = [rv.notStarted && `${plural(rv.notStarted, 'exercise')} not started`, rv.empty && `${plural(rv.empty, 'unused set')} removed`].filter(Boolean);
+  const tidy = [rv.skipped && `${plural(rv.skipped, 'exercise')} skipped`, rv.notStarted && `${plural(rv.notStarted, 'exercise')} not started`, rv.empty && `${plural(rv.empty, 'unused set')} removed`].filter(Boolean);
   if (tidy.length && !rv.nothing) h += `<p class="hint">${tidy.join(' · ')}</p>`;
   return { title: `Finish ${esc(m.days[d].name)}?`, body: h, cancel: 'Keep training', focus: '[data-act=finishGo]' };
 }
@@ -456,13 +467,44 @@ function sheetCard() {
   const ex = exById(s.slots[i]?.exId);
   if (key !== sessKey(m, w, d) || !ex) return null; // workout changed under the sheet
   const cur = stepOf(ex, unit());
-  const logged = s.slots[i].sets.some(x => x.done);
+  const sl = s.slots[i];
+  const logged = sl.sets.some(x => x.done);
+  // Skip: the whole exercise, or "the rest" once sets are logged (machine taken midway). Unskip when skipped.
+  const skip = sl.skip ? `<button class="sact" data-act="unskipSlot" data-i="${i}">⤼ Unskip exercise</button>`
+    : sl.sets.every(x => x.done) && logged ? ''
+    : `<button class="sact" data-act="skipSlot">⤼ ${logged ? 'Skip the rest of this exercise' : 'Skip exercise'}</button>`;
   return {
     title: esc(ex.name),
-    body: `<button class="sact ${logged ? 'off' : ''}" data-act="swapOpen" aria-disabled="${logged}">⇄ ${logged ? 'Swap — untick logged sets first' : 'Swap exercise'}</button>
+    body: `<button class="sact ${logged ? 'off' : ''}" data-act="swapOpen" aria-disabled="${logged}">⇄ ${logged ? 'Swap — untick logged sets first' : 'Swap exercise'}</button>${skip}
     <div class="srow"><span>Weight step · ${unit()}</span><div class="chips">${stepChoices(ex).map(v =>
       `<button class="chip ${v === cur ? 'on' : ''}" data-act="cardStep" data-v="${v}" aria-pressed="${v === cur}">${v}</button>`).join('')}</div></div>`,
   };
+}
+
+// Set-number sheet (2.4): Untick (done) · Skip/Unskip · Delete (asks first when numbers are typed).
+function sheetSet() {
+  const m = activeMeso(), { w, d } = ui.at, { key, i, j, confirmDel } = ui.sheet;
+  const s = session(m, w, d) ?? blankSession(m, w, d);
+  const sl = s.slots[i], st = sl?.sets[j];
+  if (key !== sessKey(m, w, d) || !st) return null;
+  const typed = String(st.w).trim() !== '' || String(st.r).trim() !== '';
+  let body = st.done ? '<button class="sact" data-act="setUntick">Untick set</button>'
+    : `<button class="sact" data-act="${st.skip ? 'setUnskip' : 'setSkip'}">⤼ ${st.skip ? 'Unskip set' : 'Skip set'}</button>`;
+  if (!st.done && sl.sets.length > 1) {
+    body += confirmDel
+      ? `<p class="warn">Delete set ${j + 1} (${esc(st.w || '–')} × ${esc(st.r || '–')})?</p>
+        <button class="btn block danger" data-act="setDelete">Delete set</button><button class="btn block" data-act="setDelKeep">Keep set</button>`
+      : `<button class="sact" data-act="setDelete" data-typed="${typed}">Delete set</button>`;
+  }
+  return { title: `${esc(exById(sl.exId)?.name)} · set ${j + 1}`, body, focus: confirmDel ? '[data-act=setDelete]' : '' };
+}
+// The open set sheet's set, through the write guard (stores the session if it was only shown).
+function sheetSetW() {
+  const sh = ui.sheet;
+  const c = sh?.kind === 'set' && curW();
+  const st = c && sh.key === sessKey(c.m, c.w, c.d) && c.s.slots[sh.i]?.sets[sh.j];
+  if (!st) { closeSheet(); return null; }
+  return { ...c, i: sh.i, j: sh.j, sl: c.s.slots[sh.i], st };
 }
 
 // Swap sheet (2.2, today only): search, then same-muscle exercises (recent first), then other muscles.
@@ -539,7 +581,7 @@ function sheetSwapNote() {
   };
 }
 
-const SHEETS = { finish: sheetFinish, card: sheetCard, swap: sheetSwap, swapNote: sheetSwapNote };
+const SHEETS = { finish: sheetFinish, card: sheetCard, swap: sheetSwap, swapNote: sheetSwapNote, set: sheetSet };
 
 // Shell shared by every sheet: title, body, Cancel at the bottom; the backdrop also cancels.
 function renderSheet() {
@@ -808,18 +850,76 @@ const A = {
     render();
     if (bumpOn(c.sl) && n) toast(`Filled ${n} set${n === 1 ? '' : 's'}`, { label: 'Undo', act: () => { if (bumpOn(c.sl)) toggleBump(c.sl, c.last, c.step, c.meta.reps); }, guard: writeGuard() });
   },
+  // Set number: opens the set sheet (Untick / Skip / Delete). Nothing is written until a row is tapped.
   setNum: el => {
-    const i = +el.dataset.i, j = +el.dataset.j;
-    const c0 = curW();
-    const st = c0?.s.slots[i]?.sets[j];
-    if (!st?.done || !confirm(`Untick set ${j + 1}?`)) return;
-    const snap = snapSet(st);
+    if (!cardWritable()) return;
+    const m = activeMeso(), { w, d } = ui.at, { i, j } = el.dataset;
+    openSheet({ kind: 'set', key: sessKey(m, w, d), i: +i, j: +j }, `[data-act=setNum][data-i="${i}"][data-j="${j}"]`);
+  },
+  setUntick: () => {
+    const c = sheetSetW();
+    if (!c || !c.st.done) return;
+    const { s, i, j, st } = c, snap = snapSet(st);
     untickSet(st);
     const a = rest?.at;
-    if (!c0.s.done && a && a.w === ui.at.w && a.d === ui.at.d && a.i === i && a.j === j) stopRest();
+    if (!s.done && a && a.w === ui.at.w && a.d === ui.at.d && a.i === i && a.j === j) stopRest();
+    save();
+    closeSheet();
+    toast(`Set ${j + 1} unticked`, { label: 'Undo', act: () => restoreSet(st, snap), guard: writeGuard() });
+  },
+  setSkip: () => {
+    const c = sheetSetW();
+    if (!c || !skipSet(c.st)) return;
+    save();
+    closeSheet();
+    $(`[data-act=unskipSet][data-i="${c.i}"][data-j="${c.j}"]`)?.focus(); // the ↺ that replaced the number
+    const st = c.st;
+    toast(`Set ${c.j + 1} skipped`, { label: 'Undo', act: () => unskipSet(st), guard: writeGuard() });
+  },
+  setUnskip: () => { const c = sheetSetW(); if (!c) return; unskipSet(c.st); save(); closeSheet(); },
+  // ↺ on a skipped set: one tap back.
+  unskipSet: el => {
+    const c = curW();
+    const st = c?.s.slots[+el.dataset.i]?.sets[+el.dataset.j];
+    if (!st) return;
+    unskipSet(st);
     save();
     render();
-    toast(`Set ${j + 1} unticked`, { label: 'Undo', act: () => restoreSet(st, snap), guard: writeGuard() });
+    $(`[data-act=setNum][data-i="${el.dataset.i}"][data-j="${el.dataset.j}"]`)?.focus();
+  },
+  setDelete: el => {
+    if (el.dataset.typed === 'true') { ui.sheet.confirmDel = true; render(); $('#sheet [data-act=setDelete]')?.focus(); return; }
+    const c = sheetSetW();
+    if (!c) return;
+    const { sl, i, j } = c;
+    const r = deleteSet(sl, j);
+    if (r.error) { closeSheet(); return; }
+    const a = rest?.at;
+    if (a && a.w === ui.at.w && a.d === ui.at.d && a.i === i && a.j > j) a.j--; // the timer's set moved up
+    save();
+    ui.sheet = null;
+    render();
+    toast(`Set ${j + 1} deleted`, { label: 'Undo', act: () => sl.sets.splice(j, 0, r.set), guard: writeGuard() });
+  },
+  setDelKeep: () => { ui.sheet.confirmDel = false; render(); $('#sheet [data-act=setDelete]')?.focus(); },
+  // Skip the exercise (or the rest of it) from the card ⋯ sheet; Unskip from there or the card's inline Undo.
+  skipSlot: () => {
+    const c = curW(), sh = ui.sheet;
+    const sl = c && sh?.kind === 'card' && sh.key === sessKey(c.m, c.w, c.d) && c.s.slots[sh.i];
+    if (!sl) { closeSheet(); return; }
+    if (!skipSlot(sl)) { closeSheet(); return; }
+    save();
+    closeSheet();
+    const g = writeGuard();
+    toast(`${exById(sl.exId)?.name} skipped`, { label: 'Undo', act: () => unskipSlot(sl), guard: () => g() && !!sl.skip });
+  },
+  unskipSlot: el => {
+    const c = curW();
+    const sl = c?.s.slots[+el.dataset.i];
+    if (!sl || !unskipSlot(sl)) return;
+    save();
+    if (ui.sheet) closeSheet(); else render();
+    $(`[data-act=cardMenu][data-i="${el.dataset.i}"]`)?.focus();
   },
   addSet: el => { const c = curW(); if (!c) return; c.s.slots[+el.dataset.i].sets.push(...blankSets(1)); save(); render(); },
   rmSet: el => {

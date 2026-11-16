@@ -23,12 +23,12 @@ const acceptFrom = s => (i, j) => C.acceptSet(s.slots[i].sets[j], { w: '', r: ''
 test('finishReview: counts, typed list, empty count, nothing', () => {
   const m = meso();
   const s = C.session(m, 0, 0, true);
-  assert.deepEqual(C.finishReview(s), { exercises: 0, of: 2, sets: 0, typed: [], empty: 0, notStarted: 2, nothing: true });
+  assert.deepEqual(C.finishReview(s), { exercises: 0, of: 2, sets: 0, typed: [], empty: 0, notStarted: 2, skipped: 0, nothing: true });
   s.slots[0].sets[0] = set(60, 8, true, 5);
   s.slots[0].sets[1] = { w: '60', r: '', done: false };
   s.slots[1].sets[1] = { w: '', r: '12', done: false };
   s.slots[1].sets[0] = { w: '9', r: '9', done: false, skip: true };
-  assert.deepEqual(C.finishReview(s), { exercises: 1, of: 2, sets: 1, typed: [{ i: 0, j: 1 }, { i: 1, j: 1 }], empty: 1, notStarted: 0, nothing: false });
+  assert.deepEqual(C.finishReview(s), { exercises: 1, of: 2, sets: 1, typed: [{ i: 0, j: 1 }, { i: 1, j: 1 }], empty: 1, notStarted: 0, skipped: 0, nothing: false });
 });
 
 test('Log them: typed-unticked sets become done (with t); an invalid one changes nothing', () => {

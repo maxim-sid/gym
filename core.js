@@ -237,7 +237,7 @@
     m.complete = true;
   }
 
-  const hasContent = ss => !!ss && (ss.done || ss.slots.some(sl => sl.sets.some(x => x.done || typedSet(x))));
+  const hasContent = ss => !!ss && (ss.done || ss.slots.some(sl => sl.skip || sl.sets.some(x => x.done || x.skip || typedSet(x))));
   const typedSet = x => String(x.w ?? '').trim() !== '' || String(x.r ?? '').trim() !== '';
 
   // The data part of "Finish workout". changes: [{exId, from, to}] for next week's set counts (rp only).
@@ -253,7 +253,8 @@
     if (!isFixed(m) && !isDeload(m, w) && w + 1 < m.weeks) {
       m.days[d].exercises.forEach((slot, i) => {
         // A swapped slot's feedback is about the substitute, so the planned exercise's count holds.
-        const n = swappedFrom(m, d, s, i) ? base[i] : Math.max(1, Math.min(12, base[i] + setDelta(s.slots[i].fb)));
+        // A swapped slot's feedback is about the substitute; a skipped one holds (never shrinks next week).
+        const n = swappedFrom(m, d, s, i) || s.slots[i].skip ? base[i] : Math.max(1, Math.min(12, base[i] + setDelta(s.slots[i].fb)));
         slot.plan[w + 1] = n;
         if (n !== base[i]) changes.push({ exId: slot.exId, from: base[i], to: n });
         const next = m.log[`${w + 1}-${d}`];
@@ -272,10 +273,11 @@
   // that. (Finish removes every empty set either way; this only splits the wording.)
   function finishReview(s) {
     const typed = [];
-    let sets = 0, empty = 0, exercises = 0, notStarted = 0;
+    let sets = 0, empty = 0, exercises = 0, notStarted = 0, skipped = 0;
     s.slots.forEach((sl, i) => {
       if (sl.sets.some(x => x.done)) exercises++;
-      const started = sl.sets.some(x => x.done || x.skip || typedSet(x));
+      if (sl.skip) skipped++; // a skipped exercise is neither "not started" nor has empty sets (all undone are skipped)
+      const started = sl.skip || sl.sets.some(x => x.done || x.skip || typedSet(x));
       if (!started) { notStarted++; return; }
       sl.sets.forEach((x, j) => {
         if (x.done) sets++;
@@ -284,7 +286,7 @@
         else empty++;
       });
     });
-    return { exercises, of: s.slots.length, sets, typed, empty, notStarted, nothing: !sets && !typed.length };
+    return { exercises, of: s.slots.length, sets, typed, empty, notStarted, skipped, nothing: !sets && !typed.length };
   }
 
   // "Log them" / "Skip them" for the typed sets. accept(i, j) → acceptSet result. All are checked first, so
@@ -364,7 +366,7 @@
     s.slots.forEach(sl => {
       while (sl.sets.length > 1) {
         const x = sl.sets[sl.sets.length - 1];
-        if (x.done || String(x.w).trim() !== '' || String(x.r).trim() !== '') break;
+        if (x.done || x.skip || String(x.w).trim() !== '' || String(x.r).trim() !== '') break;
         sl.sets.pop();
         n++;
       }
@@ -375,7 +377,37 @@
   // −Set may only remove an untouched last set (not done, nothing typed), and never the only set.
   function canRemoveLastSet(sl) {
     const last = sl.sets[sl.sets.length - 1];
-    return sl.sets.length > 1 && !last.done && last.w === '' && last.r === '';
+    return sl.sets.length > 1 && !last.done && !last.skip && last.w === '' && last.r === '';
+  }
+
+  /* ---------- skip (2.4) ---------- */
+  // A skipped set keeps its numbers and done:false, so nothing that counts done sets sees it (stats, lastPerf,
+  // prefill, charts); it still counts in the planned number of sets.
+  const skipSet = st => { if (st.done) return false; st.skip = true; return true; };
+  const unskipSet = st => { delete st.skip; };
+  // Skip the exercise (or the rest of it: done sets stay counted). sl.skipMarked remembers which sets this
+  // marked, so unskipping keeps sets that were skipped on their own. → false if already skipped.
+  function skipSlot(sl) {
+    if (sl.skip) return false;
+    sl.skipMarked = [];
+    sl.sets.forEach((x, j) => { if (!x.done && !x.skip) { x.skip = true; sl.skipMarked.push(j); } });
+    sl.skip = true;
+    return true;
+  }
+  function unskipSlot(sl) {
+    if (!sl.skip) return false;
+    (sl.skipMarked || []).forEach(j => { if (sl.sets[j] && !sl.sets[j].done) delete sl.sets[j].skip; });
+    delete sl.skip;
+    delete sl.skipMarked;
+    return true;
+  }
+  // Delete set j: never a done set or the only set. → {set} (put back with sl.sets.splice(j, 0, set)) | {error}
+  function deleteSet(sl, j) {
+    const x = sl.sets[j];
+    if (!x) return { error: 'missing' };
+    if (x.done) return { error: 'done' };
+    if (sl.sets.length < 2) return { error: 'last' };
+    return { set: sl.sets.splice(j, 1)[0] };
   }
 
   // "100×8, 100×7" · bodyweight "BW×8, +20×6" · timed "30 s, +10 kg · 25 s". Legacy weighted 0 → "8 reps".
@@ -466,7 +498,7 @@
     const ls = last.sets[j] || last.sets[last.sets.length - 1];
     return { w: String(Math.round((+ls.w + step) * 1000) / 1000), r: String(reps[0]) };
   };
-  const untouched = x => !x.done && String(x.w).trim() === '' && String(x.r).trim() === '';
+  const untouched = x => !x.done && !x.skip && String(x.w).trim() === '' && String(x.r).trim() === '';
   // The chip's state lives on the session slot: sl.bump = [indexes the chip filled] while it is on (optional field,
   // ignored by old code). It is never inferred from values, so hand-typed numbers can't switch it on.
   const bumpOn = sl => Array.isArray(sl.bump);
@@ -591,6 +623,7 @@
     sl.sets = sl.sets.map(() => ({ w: '', r: '', done: false }));
     sl.fb = {};
     delete sl.skip;
+    delete sl.skipMarked;
     delete sl.bump;
     return { snap };
   }
@@ -680,6 +713,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);
