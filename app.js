@@ -794,7 +794,7 @@ function doSwap(pick, clearNote) {
   const sl = c.s.slots[sh.i];
   if (sl.sets.some(x => x.done)) { closeSheet(); toast('Untick the logged sets first to swap'); return; }
   const block = sh.mode === 'block' && !c.s.done;
-  const note = c.m.days[c.d].exercises[sh.i].notes;
+  const note = c.m.days[c.d].exercises[sh.i]?.notes;
   if (block && clearNote == null && note?.trim()) {
     openSheet({ kind: 'swapNote', key: sh.key, i: sh.i, mode: 'block', pick }, sh.ret);
     return;
