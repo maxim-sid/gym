@@ -532,6 +532,60 @@
     return out.sort((a, b) => b.s.date - a.s.date);
   }
 
+  /* ---------- swap (2.2) ---------- */
+
+  // Groups for the swap sheet of a slot doing exId. query filters every group by name (substring, any case).
+  // → {muscle, recent: [{ex, date}] same muscle by last date done, all: rest of that muscle A–Z,
+  //    other: [{muscle, items}] other muscles A–Z, add: the typed name when no exercise has exactly that name}
+  function swapCandidates(S, exId, query = '') {
+    const muscle = S.exercises.find(e => e.id === exId)?.muscle;
+    const q = String(query).trim(), ql = q.toLowerCase();
+    const last = {};
+    allSessions(S).forEach(({ s }) => s.slots.forEach(sl => {
+      if (!(sl.exId in last) && countedSets(sl).length) last[sl.exId] = s.date;
+    }));
+    const byName = (a, b) => a.name.localeCompare(b.name);
+    const pool = S.exercises.filter(e => e.id !== exId && e.name.toLowerCase().includes(ql));
+    const same = pool.filter(e => e.muscle === muscle);
+    const recent = same.filter(e => e.id in last).sort((a, b) => last[b.id] - last[a.id]).map(ex => ({ ex, date: last[ex.id] }));
+    const all = same.filter(e => !(e.id in last)).sort(byName);
+    const other = [...new Set(pool.filter(e => e.muscle !== muscle).map(e => e.muscle))].sort()
+      .map(mu => ({ muscle: mu, items: pool.filter(e => e.muscle === mu).sort(byName) }));
+    const add = q && !S.exercises.some(e => e.name.toLowerCase() === ql) ? q : null;
+    return { muscle, recent, all, other, add };
+  }
+
+  // The planned exercise when slot i of a session does something else today, else null.
+  const swappedFrom = (m, d, s, i) => {
+    const plan = m.days[d]?.exercises[i]?.exId;
+    return plan && s.slots[i] && s.slots[i].exId !== plan ? plan : null;
+  };
+
+  const snapSlot = sl => JSON.parse(JSON.stringify(sl));
+  function restoreSlot(sl, snap) {
+    Object.keys(sl).forEach(k => delete sl[k]);
+    Object.assign(sl, snapSlot(snap));
+  }
+
+  // Today only: slot i does newExId instead. Refused once a set is done (history must keep what was lifted).
+  // Undone sets are emptied so the suggestions come from the new exercise; feedback, skip and the +step chip reset.
+  // → {snap} for Undo | {error: 'done'|'same'|'missing'}
+  function swapToday(s, i, newExId) {
+    const sl = s.slots[i];
+    if (!sl) return { error: 'missing' };
+    if (sl.exId === newExId) return { error: 'same' };
+    if (sl.sets.some(x => x.done)) return { error: 'done' };
+    const snap = snapSlot(sl);
+    sl.exId = newExId;
+    sl.sets = sl.sets.map(() => ({ w: '', r: '', done: false }));
+    sl.fb = {};
+    delete sl.skip;
+    delete sl.bump;
+    return { snap };
+  }
+  // Back to the planned exercise: the same rules as a swap.
+  const unswap = (m, d, s, i) => swappedFrom(m, d, s, i) ? swapToday(s, i, m.days[d].exercises[i].exId) : { error: 'same' };
+
   function perfFor(S, exId) {
     const out = [];
     allSessions(S).forEach(({ s }) => s.slots.forEach(sl => {
@@ -581,6 +635,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, snapSlot, restoreSlot, swapToday, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

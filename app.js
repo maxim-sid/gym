@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof swapToday !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -198,15 +198,18 @@ function viewToday() {
   s.slots.forEach((sl, i) => {
     const { sl: _sl, ex, meta, last, hitTop, weighted, step, suggest } = slotCtx(m, w, d, s, i);
     // ↑ chip: explicit "+step" for the untouched sets (no longer baked into the suggestion, F15).
+    const from = swappedFrom(m, d, s, i); // planned exercise when this slot does another one today
     const chip = hitTop && weighted && !ro
       ? `<button class="chip bump ${bumpOn(_sl) ? 'on' : ''}" data-act="bump" data-i="${i}">+${step} ${unit()}</button>` : '';
     h += `<div class="card"><div class="exhead"><div><h2>${esc(ex?.name)}</h2>
+      ${from && !s.done ? `<div class="swapped">instead of ${esc(exById(from)?.name)}${ro || sl.sets.some(x => x.done) ? ''
+        : ` · <button class="lnk" data-act="unswap" data-i="${i}">Undo swap</button>`}</div>` : ''}
       <div class="tags"><span class="tag">${esc(ex?.muscle)}</span>${meta.type === 'main' ? '<span class="tag main">Main</span>' : ''}
       ${meta.reps ? `<span class="muted">${sl.sets.length} × ${repsTxt(meta.reps, isTimed(ex, meta))}</span>` : ''}</div></div>
       ${ro ? '' : `<button class="icon more" data-act="cardMenu" data-i="${i}" aria-label="More for ${esc(ex?.name)}">⋯</button>`}
       </div>
       ${last ? `<div class="last">Last · ${fmtDate(last.date)}: ${fmtSets(last.sets, ex, unit())}</div>` : ''}
-      ${meta.notes ? `<div class="note">${esc(meta.notes)}</div>` : ''}
+      ${meta.notes && !from ? `<div class="note">${esc(meta.notes)}</div>` : ''}
       ${hitTop ? `<div class="up"><span>↑ Top of the range on every set last time: ${weighted ? 'add weight' : 'add weight or reps'}</span>${chip}</div>` : ''}
       <div class="setgrid"><span></span><span class="h">${ex?.bw ? '+' : ''}${unit()}</span><span class="h">${isTimed(ex, meta) ? 'Sec' : 'Reps'}</span><span></span>`;
     sl.sets.forEach((st, j) => {
@@ -452,14 +455,58 @@ function sheetCard() {
   const ex = exById(s.slots[i]?.exId);
   if (key !== sessKey(m, w, d) || !ex) return null; // workout changed under the sheet
   const cur = stepOf(ex, unit());
+  const logged = s.slots[i].sets.some(x => x.done);
   return {
     title: esc(ex.name),
-    body: `<div class="srow"><span>Weight step · ${unit()}</span><div class="chips">${stepChoices(ex).map(v =>
+    body: `<button class="sact ${logged ? 'off' : ''}" data-act="swapOpen" aria-disabled="${logged}">⇄ ${logged ? 'Swap — untick logged sets first' : 'Swap exercise'}</button>
+    <div class="srow"><span>Weight step · ${unit()}</span><div class="chips">${stepChoices(ex).map(v =>
       `<button class="chip ${v === cur ? 'on' : ''}" data-act="cardStep" data-v="${v}" aria-pressed="${v === cur}">${v}</button>`).join('')}</div></div>`,
   };
 }
 
-const SHEETS = { finish: sheetFinish, card: sheetCard };
+// Swap sheet (2.2, today only): search, then same-muscle exercises (recent first), then other muscles.
+function sheetSwap() {
+  const m = activeMeso(), { w, d } = ui.at, { key, i } = ui.sheet;
+  const ex = exById((session(m, w, d) ?? blankSession(m, w, d)).slots[i]?.exId);
+  if (key !== sessKey(m, w, d) || !ex) return null;
+  return {
+    title: `Swap ${esc(ex.name)}`,
+    body: `<input type="search" class="swapq" data-swapq value="${esc(ui.sheet.q)}" placeholder="Search or add new…" aria-label="Search exercises or add a new one" autocomplete="off" enterkeyhint="search">
+      <div id="swaplist">${swapListHtml(ex)}</div>`,
+  };
+}
+// Only the list is redrawn while typing, so the field keeps focus and the keyboard stays up.
+function swapListHtml(ex) {
+  const g = swapCandidates(S, ex.id, ui.sheet.q);
+  const row = (e, right) => `<button class="sitem" data-act="swapPick" data-id="${e.id}"><span>${esc(e.name)}</span>${right ? `<span class="muted">${right}</span>` : ''}</button>`;
+  const head = (t, extra = '') => `<div class="sgrp" ${extra}>${t}</div>`;
+  let h = g.add ? `<button class="sitem add" data-act="swapAdd">+ Add “${esc(g.add)}” (${esc(g.muscle)})</button>` : '';
+  if (g.recent.length) h += head(`Recent · ${esc(g.muscle)}`) + g.recent.map(r => row(r.ex, fmtDate(r.date))).join('');
+  if (g.all.length) h += head(`All ${esc(g.muscle)}`) + g.all.map(e => row(e)).join('');
+  if (g.other.length) {
+    h += ui.sheet.other || ui.sheet.q.trim()
+      ? head('Other muscles', 'id="swapother" tabindex="-1"') + g.other.map(o => head(esc(o.muscle), 'class="sgrp sub"') + o.items.map(e => row(e)).join('')).join('')
+      : '<button class="sitem" data-act="swapOther" aria-expanded="false"><span>Other muscles</span><span aria-hidden="true">›</span></button>';
+  }
+  return h || '<p class="hint">No other exercises match.</p>';
+}
+const redrawSwapList = () => { const ex = exById((session(activeMeso(), ui.at.w, ui.at.d) ?? blankSession(activeMeso(), ui.at.w, ui.at.d)).slots[ui.sheet.i]?.exId); if (ex) $('#swaplist').innerHTML = swapListHtml(ex); };
+
+// Undo of a swap: the usual write guard, and only while nothing has been logged on the slot since.
+const swapUndoGuard = sl => { const g = writeGuard(); return () => g() && !sl.sets.some(x => x.done); };
+function doSwap(exId) {
+  const sh = ui.sheet;
+  const c = curW(); // stores the session if it was only shown, like typing a set
+  if (!c || sh?.kind !== 'swap' || sh.key !== sessKey(c.m, c.w, c.d)) { closeSheet(); return; }
+  const sl = c.s.slots[sh.i];
+  const r = swapToday(c.s, sh.i, exId);
+  if (!r.error) save();
+  closeSheet(); // re-renders and puts focus back on the card's ⋯
+  if (r.error) { if (r.error === 'done') toast('Untick the logged sets first to swap'); return; }
+  toast(`Swapped to ${exById(exId).name} for today`, { label: 'Undo', act: () => restoreSlot(sl, r.snap), guard: swapUndoGuard(sl) });
+}
+
+const SHEETS = { finish: sheetFinish, card: sheetCard, swap: sheetSwap };
 
 // Shell shared by every sheet: title, body, Cancel at the bottom; the backdrop also cancels.
 function renderSheet() {
@@ -637,6 +684,31 @@ const A = {
     if (!cardWritable()) return;
     const m = activeMeso(), { w, d } = ui.at;
     openSheet({ kind: 'card', key: sessKey(m, w, d), i: +el.dataset.i }, `[data-act="cardMenu"][data-i="${el.dataset.i}"]`);
+  },
+  swapOpen: () => {
+    if (!cardWritable()) return;
+    const m = activeMeso(), { w, d } = ui.at, { key, i, ret } = ui.sheet;
+    if ((session(m, w, d) ?? blankSession(m, w, d)).slots[i]?.sets.some(x => x.done)) { toast('Untick the logged sets first to swap'); return; }
+    openSheet({ kind: 'swap', key, i, q: '', other: false }, ret);
+  },
+  swapOther: () => { ui.sheet.other = true; redrawSwapList(); $('#swapother')?.focus(); },
+  swapPick: el => doSwap(el.dataset.id),
+  swapAdd: () => {
+    if (!cardWritable()) return;
+    const m = activeMeso(), { w, d } = ui.at;
+    const cur = exById((session(m, w, d) ?? blankSession(m, w, d)).slots[ui.sheet.i]?.exId);
+    const g = cur && swapCandidates(S, cur.id, ui.sheet.q);
+    if (g?.add) doSwap(ensureExercise(g.add, g.muscle).id);
+  },
+  unswap: el => {
+    const c = curW();
+    if (!c) return;
+    const i = +el.dataset.i, sl = c.s.slots[i];
+    const r = unswap(c.m, c.d, c.s, i);
+    if (r.error) { if (r.error === 'done') toast('Untick the logged sets first'); return; }
+    save();
+    render();
+    toast(`Back to ${exById(sl.exId).name}`, { label: 'Undo', act: () => restoreSlot(sl, r.snap), guard: swapUndoGuard(sl) });
   },
   // The step belongs to the exercise, so this doesn't store a workout that's only shown.
   cardStep: el => {
@@ -938,6 +1010,7 @@ document.addEventListener('click', e => {
 
 document.addEventListener('input', e => {
   const t = e.target;
+  if ('swapq' in t.dataset) { if (ui.sheet?.kind === 'swap') { ui.sheet.q = t.value; redrawSwapList(); } return; }
   if (t.dataset.f) {
     t.classList.remove('bad');
     const c0 = curW();

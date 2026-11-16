@@ -162,6 +162,17 @@ ol.hint { padding-left: 20px; }
 .srow > span { display: block; margin-bottom: 8px; color: var(--muted); font-size: 14px; }
 .srow .chip { min-height: 48px; min-width: 52px; }
 .srow + .btn.block { margin-top: 4px; }
+.sact { display: block; width: 100%; min-height: 48px; text-align: left; font-size: 16px; border-top: 1px solid var(--line); padding: 0 2px; }
+.sact.off { color: var(--muted); }
+.swapq { margin: 10px 0 2px; min-height: 48px; }
+.sgrp { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; margin: 14px 2px 2px; outline: none; }
+.sgrp.sub { text-transform: none; letter-spacing: 0; font-weight: 500; margin-top: 10px; }
+.sitem { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 0 2px; text-align: left; border-bottom: 1px solid var(--line); }
+.sitem .muted { flex: none; font-size: 13px; }
+.sitem.add { color: var(--acc); font-weight: 600; }
+#swaplist { margin-bottom: 12px; }
+.swapped { color: var(--muted); font-size: 14px; display: flex; align-items: center; flex-wrap: wrap; margin-top: -2px; }
+.lnk { color: var(--acc); min-height: 44px; padding: 0 4px; text-decoration: underline; }
 .icon.more { font-size: 22px; line-height: 1; margin: -8px -8px 0 0; }
 
 /* Bottom, above the rest bar (68 px tabs + ~64 px rest bar) and the home indicator. */
