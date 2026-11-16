@@ -1,5 +1,6 @@
-// Bump CACHE when you change any file so phones pick up the new version.
-const CACHE = 'liftbook-v28';
+// A deploy reaches phones ONLY if CACHE is bumped: files come solely from the install
+// precache below, and a new worker installs only when this file changes.
+const CACHE = 'liftbook-v29';
 const FILES = ['./', 'index.html', 'style.css', 'data/plan.js', 'core.js', 'app.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
 
 // No skipWaiting(): a new worker waits until every Liftbook page is closed, so an
@@ -21,17 +22,14 @@ self.addEventListener('activate', e => {
   );
 });
 
-// Serve from cache right away (works with no signal in the gym), refresh the cache in the background.
+// Cache first, network only for anything not precached. Responses are never written
+// back, so an old cache can't be topped up with new files (no mixed versions).
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   e.respondWith(
     caches.open(CACHE).then(async c => {
       const hit = await c.match(e.request, { ignoreSearch: true });
-      const net = fetch(e.request).then(res => {
-        if (res.ok) c.put(e.request, res.clone());
-        return res;
-      }).catch(() => hit);
-      return hit || net;
+      return hit || fetch(e.request);
     })
   );
 });

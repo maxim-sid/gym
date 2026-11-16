@@ -2,7 +2,7 @@
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
 if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function') {
-  document.getElementById('main').textContent = 'Update in progress — please reload.';
+  document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
 }
