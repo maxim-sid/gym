@@ -565,10 +565,13 @@ function sheetCard() {
     <button class="chip" data-act="cardRest" data-v="15" aria-label="Rest 15 seconds longer">+15</button>
     ${own ? '<button class="lnk" data-act="cardRest" data-v="reset">Reset to default</button>' : ''}</div></div>`;
   const unitR = isTimed(ex, slot) ? 'sec' : 'reps';
-  const planRows = !live || s.done || !slot ? '' : `
-    <div class="srow prow"><span>Sets</span><div class="stepper">
+  // A deload week always does half of the planned sets, so there's nothing to step there.
+  const setsRow = isDeload(m, fromW) ? '<div class="srow prow"><span>Sets</span><span class="muted">Deload: half of planned</span></div>'
+    : `<div class="srow prow"><span>Sets</span><div class="stepper">
       <button data-act="planSets" data-v="-1" aria-label="One set fewer">−</button><b>${plannedSets(m, d, i, fromW)}</b>
-      <button data-act="planSets" data-v="1" aria-label="One set more">+</button></div></div>
+      <button data-act="planSets" data-v="1" aria-label="One set more">+</button></div></div>`;
+  const planRows = !live || s.done || !slot ? '' : `
+    ${setsRow}
     <div class="srow prow"><span>Range (${unitR})</span><div class="row nowrap rrow">
       <input class="rin" data-plan="lo" inputmode="numeric" value="${slot.reps ? slot.reps[0] : ''}" aria-label="Lowest ${unitR}" placeholder="–">
       <span>–</span><input class="rin" data-plan="hi" inputmode="numeric" value="${slot.reps ? slot.reps[1] : ''}" aria-label="Highest ${unitR}" placeholder="–" enterkeyhint="done"></div></div>`;
@@ -1068,11 +1071,22 @@ const A = {
     return `Sets from week ${fromW + 1}: ${plannedSets(m, d, i, fromW)}`;
   }, `#sheet [data-act=planSets][data-v="${el.dataset.v}"]`),
   // Reps range / plan note fields: saved on change (blur or Enter), without a re-render so the next field keeps focus.
-  planField: t => planChange(slot => {
-    if (t.dataset.plan === 'notes') { slot.notes = t.value.trim(); return 'Plan note saved'; }
-    slot.reps = parseRange($('#sheet [data-plan=lo]')?.value, $('#sheet [data-plan=hi]')?.value);
-    return slot.reps ? `Range: ${repsTxt(slot.reps)}` : 'No range';
-  }, null, true),
+  planField: t => {
+    planChange(slot => {
+      if (t.dataset.plan === 'notes') { slot.notes = t.value.trim(); return 'Plan note saved'; }
+      slot.reps = parseRange($('#sheet [data-plan=lo]')?.value, $('#sheet [data-plan=hi]')?.value);
+      return slot.reps ? `Range: ${repsTxt(slot.reps)}` : 'No range';
+    }, null, true);
+    // Show what was stored (e.g. 10–5 saved as 5–10) without a re-render. The field being typed in now (focus moved
+    // there) is left alone, or its value would change under the typing; it's written back on its own change.
+    const slot = ui.sheet?.kind === 'card' && activeMeso().days[ui.at.d]?.exercises[ui.sheet.i];
+    if (slot && t.dataset.plan !== 'notes') {
+      [['lo', 0], ['hi', 1]].forEach(([k, n]) => {
+        const f = $(`#sheet [data-plan=${k}]`);
+        if (f && (f === t || f !== document.activeElement)) f.value = slot.reps ? slot.reps[n] : '';
+      });
+    }
+  },
   swapMode: el => { ui.sheet.mode = el.dataset.v; render(); $(`#sheet [data-act=swapMode][data-v="${el.dataset.v}"]`)?.focus(); },
   swapNoteGo: el => doSwap(ui.sheet.pick, el.dataset.clear === '1'),
   swapOther: () => { ui.sheet.other = true; redrawSwapList(); $('#swapother')?.focus(); },
@@ -1099,6 +1113,7 @@ const A = {
     if (!cardWritable() || ui.sheet?.kind !== 'card') return;
     const m = activeMeso(), { d } = ui.at, i = ui.sheet.i, slot = m.days[d].exercises[i];
     if (!slot) return;
+    cancelToast(); // an older plan Undo would bring back the old rest with its snapshot
     if (el.dataset.v === 'reset') delete slot.rest;
     else slot.rest = clampRest(restFor(m, d, i, S.settings) + +el.dataset.v);
     save();
