@@ -46,7 +46,7 @@ test('normalize reports no change for an already complete state', () => {
 test('missing settings loads with defaults', () => {
   const r = loadFrom(JSON.stringify({ v: 1, exercises: [], mesos: [] }));
   assert.ok(r.state);
-  assert.deepEqual(r.state.settings, { unit: 'kg', restMain: 180, restAcc: 90 });
+  assert.deepEqual(r.state.settings, { unit: 'kg', restMain: 180, restAcc: 90, beepLoud: false, keepAwake: false });
 });
 
 test('missing exercises/mesos arrays are backfilled, not rejected', () => {
@@ -239,7 +239,7 @@ test('importInto: missing settings → defaults', () => {
   const st = fakeStorage({ [KEY]: CURRENT });
   const r = importInto(st, JSON.stringify({ v: 1, exercises: [], mesos: [] }), yes);
   assert.equal(r.ok, true);
-  assert.deepEqual(r.state.settings, { unit: 'kg', restMain: 180, restAcc: 90 });
+  assert.deepEqual(r.state.settings, { unit: 'kg', restMain: 180, restAcc: 90, beepLoud: false, keepAwake: false });
 });
 
 test('importInto rejects corrupt, newer, wrong-version and shape-invalid files without writing', () => {

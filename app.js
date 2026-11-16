@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof staleSession !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof restState !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -451,6 +451,10 @@ function viewSettings() {
           `<option value="${s}" ${S.settings[k] === s ? 'selected' : ''}>${fmtTime(s)}</option>`).join('')}</select></div>`).join('')}
     </div>
     <p class="hint" style="margin:-4px 2px 12px">Changing units only changes the label. Numbers you already logged stay the same.</p>
+    <div class="card list"><div class="sub">Rest timer</div>
+      <label class="line tog"><span>Beep even in silent mode (may pause your music)</span><input type="checkbox" data-bind="beepLoud" ${S.settings.beepLoud ? 'checked' : ''}></label>
+      <label class="line tog"><span>Keep screen on during workouts</span><input type="checkbox" data-bind="keepAwake" ${S.settings.keepAwake ? 'checked' : ''}></label>
+      <p class="hint">A locked iPhone can't alert you from a web app. Keep the screen on instead.</p></div>
     <div class="card"><div class="sub">Backup</div>
       <p class="hint">Your data is stored only on this phone. Export a backup now and then (save it to Files or iCloud Drive).</p>
       <div class="row"><button class="btn grow" data-act="exportData">Export</button>${readOnly ? '' : '<button class="btn grow" data-act="importData">Import</button>'}</div></div>
@@ -533,11 +537,18 @@ function sheetCard() {
   const skip = sl.skip ? `<button class="sact" data-act="unskipSlot" data-i="${i}">⤼ Unskip exercise</button>`
     : sl.sets.every(x => x.done) && logged ? ''
     : `<button class="sact" data-act="skipSlot">⤼ ${logged ? 'Skip the rest of this exercise' : 'Skip exercise'}</button>`;
+  // Rest for this exercise, rest of the block (the plan slot); not from a finished workout (Edit mode).
+  const slot = m.days[d].exercises[i], own = +slot?.rest > 0;
+  const restRow = s.done || !slot ? '' : `<div class="srow"><span>⏱ Rest${own ? '' : ' · default'}</span><div class="row nowrap rrow">
+    <b class="rv">${fmtTime(restFor(m, d, i, S.settings))}</b>
+    <button class="chip" data-act="cardRest" data-v="-15" aria-label="Rest 15 seconds shorter">−15</button>
+    <button class="chip" data-act="cardRest" data-v="15" aria-label="Rest 15 seconds longer">+15</button>
+    ${own ? '<button class="lnk" data-act="cardRest" data-v="reset">Reset to default</button>' : ''}</div></div>`;
   return {
     title: esc(ex.name),
     body: `<button class="sact ${logged ? 'off' : ''}" data-act="swapOpen" aria-disabled="${logged}">⇄ ${logged ? 'Swap — untick logged sets first' : 'Swap exercise'}</button>${skip}
     <div class="srow"><span>Weight step · ${unit()}</span><div class="chips">${stepChoices(ex).map(v =>
-      `<button class="chip ${v === cur ? 'on' : ''}" data-act="cardStep" data-v="${v}" aria-pressed="${v === cur}">${v}</button>`).join('')}</div></div>`,
+      `<button class="chip ${v === cur ? 'on' : ''}" data-act="cardStep" data-v="${v}" aria-pressed="${v === cur}">${v}</button>`).join('')}</div></div>${restRow}`,
   };
 }
 
@@ -759,6 +770,7 @@ function render() {
     + VIEWS[ui.tab]();
   renderSheet();
   renderBar();
+  if (rest) { restShown = ''; tickRest(); } // the "next:" line follows what was just logged
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === ui.tab));
 }
 
@@ -784,55 +796,146 @@ function toast(msg, opt) {
   }, toastAction ? 6000 : 3200);
 }
 
-/* ---------- rest timer ---------- */
+/* ---------- rest timer (2.8) ---------- */
+// rest = {end, exId, key, at: {w, d, i, j}, fired}. Mirrored to localStorage[REST_KEY] (never part of S), so a reload
+// or a return from the background shows it again, overtime included, for up to 10 min. canAutoUpdate sees !!rest.
+let rest = null, audio, restShown = '';
 
-let rest = null, audio;
+function restSave() {
+  try {
+    if (rest) localStorage.setItem(REST_KEY, JSON.stringify({ end: rest.end, exId: rest.exId, key: rest.key, at: rest.at, fired: rest.fired }));
+    else localStorage.removeItem(REST_KEY);
+  } catch (e) { /* storage unavailable: the timer just isn't kept */ }
+}
 
-// at: {w, d, i, j} of the set that started it, so unticking that set can stop it.
-function startRest(type, at) {
-  stopRest();
+// Inside the ✓ tap: sound may only start from a user gesture on iOS. Loud mode opts into the "playback" session.
+function unlockAudio() {
   try {
     audio = audio || new (window.AudioContext || window.webkitAudioContext)();
     audio.resume();
   } catch (e) { /* no audio */ }
-  const secs = type === 'main' ? S.settings.restMain : S.settings.restAcc;
-  rest = { end: Date.now() + secs * 1000, fired: false, at };
+  try {
+    const as = navigator.audioSession;
+    if (as) {
+      if (S.settings.beepLoud) as.type = 'playback';
+      else if (as.type === 'playback') as.type = 'auto';
+    }
+  } catch (e) { /* not supported */ }
+}
+
+// at: {w, d, i, j} of the set that started it, so unticking that set can stop it.
+function startRest(m, s, d, at) {
+  stopRest();
+  unlockAudio();
+  rest = { end: Date.now() + restFor(m, d, at.i, S.settings) * 1000, fired: false, exId: s.slots[at.i]?.exId, key: sessKey(m, at.w, d), at };
+  restSave();
+  runRest();
+}
+function runRest() {
+  clearInterval(rest.iv);
   rest.iv = setInterval(tickRest, 250);
+  restShown = '';
   tickRest();
+}
+// On load and on return to the app: bring back a timer that hasn't been over for 10 min yet.
+function restoreRest() {
+  if (mode === 'recovery') return; // no data to show it against
+  if (rest) { tickRest(); return; }
+  let r = null;
+  try { r = JSON.parse(localStorage.getItem(REST_KEY)); } catch (e) { /* none */ }
+  if (!r || !r.at || restState(r, Date.now()).state === 'expired') { try { localStorage.removeItem(REST_KEY); } catch (e) { /* */ } return; }
+  rest = r;
+  if (restState(r, Date.now()).state === 'over') rest.fired = true; // it went off while we were away: no late beep
+  runRest();
+}
+
+// "next: Weighted Dips set 3 · +20 × 8" for the workout the timer belongs to.
+function restNext() {
+  const [mid, wd] = String(rest.key).split(':');
+  const m = S.mesos.find(x => x.id === mid), s = m?.log[wd];
+  const n = s && !s.done && nextSet(s);
+  if (!n) return null;
+  const [w, d] = wd.split('-').map(Number);
+  const c = slotCtx(m, w, d, s, n.i), pf = c.suggest(n.j);
+  const val = pf.w !== '' || pf.r !== '' ? ` · ${c.ex?.bw && pf.w ? '+' : ''}${pf.w || '–'} × ${pf.r || '–'}` : '';
+  return { j: n.j, txt: `next: ${c.ex?.name ?? ''} set ${n.j + 1}${val}` };
+}
+
+function restBarHtml(state) {
+  const n = restNext();
+  const btn = (act, v, label, aria) => `<button class="rb" data-act="${act}" ${v ? `data-v="${v}"` : ''} aria-label="${aria}">${label}</button>`;
+  const top = state === 'over'
+    ? `<b class="go-t">GO${n ? ` · set ${n.j + 1}` : ''}</b> <span class="t ot"></span>`
+    : '<span class="rl">Rest</span> <b class="t"></b>';
+  return `<div class="rinfo"><div class="rtop">${top}</div>${n ? `<div class="rnext">${esc(n.txt)}</div>` : ''}</div>`
+    + (state === 'over' ? '' : btn('restAdj', '-15', '−15', '15 seconds less'))
+    + btn('restAdj', '15', '+15', '15 seconds more') + btn('restSkip', '', '✕', 'Stop the rest timer');
 }
 
 function tickRest() {
-  const el = $('#rest');
-  const left = Math.ceil((rest.end - Date.now()) / 1000);
-  el.hidden = false;
-  if (left > 0) {
-    el.querySelector('.t').textContent = fmtTime(left);
-    el.classList.remove('go');
-    return;
+  if (!rest) return;
+  const st = restState(rest, Date.now());
+  if (st.state === 'expired') { stopRest(); return; }
+  if (st.state === 'over') {
+    if (!rest.fired) { rest.fired = true; restSave(); beep(); navigator.vibrate?.(300); }
+    if (st.secs >= 300) keepAwake(false); // 5 min past zero: let the screen sleep
   }
-  el.querySelector('.t').textContent = 'Go!';
-  el.classList.add('go');
-  if (!rest.fired) { rest.fired = true; beep(); navigator.vibrate?.(300); }
-  if (left < -30) stopRest();
+  const el = $('#rest');
+  if (restShown !== st.state) { // rebuilt only when the state changes (or on render), so taps aren't lost
+    restShown = st.state;
+    el.innerHTML = restBarHtml(st.state);
+    el.classList.toggle('go', st.state === 'over');
+    el.hidden = false;
+  }
+  const t = el.querySelector('.t');
+  if (t) t.textContent = st.state === 'over' ? `+${fmtTime(st.secs)}` : fmtTime(st.secs);
 }
 
 function stopRest() {
   if (rest) clearInterval(rest.iv);
   rest = null;
+  restShown = '';
+  restSave();
   $('#rest').hidden = true;
 }
 
+// Three short beeps at zero.
 function beep() {
   try {
-    const o = audio.createOscillator(), g = audio.createGain();
-    o.frequency.value = 880;
-    g.gain.setValueAtTime(0.25, audio.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.5);
-    o.connect(g).connect(audio.destination);
-    o.start();
-    o.stop(audio.currentTime + 0.5);
-  } catch (e) { /* ignore */ }
+    const t0 = audio.currentTime;
+    [0, 0.25, 0.5].forEach(dt => {
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.frequency.value = 880;
+      g.gain.setValueAtTime(0.3, t0 + dt);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + dt + 0.15);
+      o.connect(g).connect(audio.destination);
+      o.start(t0 + dt);
+      o.stop(t0 + dt + 0.16);
+    });
+  } catch (e) { /* no audio (e.g. restored after a reload, before any tap) */ }
 }
+
+/* ---------- screen on (2.8, opt-in) ---------- */
+// Requested on ✓ and on return to the app while a workout is open; released on Finish, after 5 min of overtime,
+// and when the app is hidden. Feature-detected; every error is swallowed (the setting just does nothing then).
+let wake = null, wakeBusy = false;
+async function keepAwake(on) {
+  try {
+    if (on && S.settings.keepAwake && 'wakeLock' in navigator && !document.hidden && !wake && !wakeBusy) {
+      wakeBusy = true;
+      wake = await navigator.wakeLock.request('screen');
+      wake.addEventListener?.('release', () => { wake = null; });
+    } else if (!on && wake) {
+      const w = wake;
+      wake = null;
+      await w.release();
+    }
+  } catch (e) { wake = null; } finally { wakeBusy = false; }
+}
+const workoutOpen = () => {
+  const m = activeMeso(), s = m && ui.at && m.log[`${ui.at.w}-${ui.at.d}`];
+  return !!s && !s.done && !s.skipped;
+};
 
 /* ---------- actions ---------- */
 
@@ -855,7 +958,8 @@ function newDraft() {
   return { name: `Block ${S.mesos.length + 1}`, weeks: 4, deload: true, style: 'rp', days: [{ name: 'Day 1', exercises: [] }] };
 }
 
-const copySlot = s => ({ exId: s.exId, plan: [s.plan[0]], reps: s.reps ?? null, type: s.type ?? 'accessory', notes: s.notes ?? '', timed: !!s.timed });
+const copySlot = s => ({ exId: s.exId, plan: [s.plan[0]], reps: s.reps ?? null, type: s.type ?? 'accessory', notes: s.notes ?? '', timed: !!s.timed,
+  ...(+s.rest > 0 ? { rest: +s.rest } : {}) });
 const copyDay = d => ({ name: d.name, weekday: d.weekday ?? null, notes: d.notes ?? '', exercises: d.exercises.map(copySlot) });
 
 function draftFrom(m, editId) {
@@ -933,6 +1037,17 @@ const A = {
     save();
     render();
     toast(`Back to ${exById(sl.exId).name}`, { label: 'Undo', act: () => restoreSlot(sl, r.snap), guard: swapUndoGuard(sl) });
+  },
+  // ⏱ Rest −15/+15/Reset in the card sheet: writes the plan slot (rest of block), 15 s–10 min.
+  cardRest: el => {
+    if (!cardWritable() || ui.sheet?.kind !== 'card') return;
+    const m = activeMeso(), { d } = ui.at, i = ui.sheet.i, slot = m.days[d].exercises[i];
+    if (!slot) return;
+    if (el.dataset.v === 'reset') delete slot.rest;
+    else slot.rest = clampRest(restFor(m, d, i, S.settings) + +el.dataset.v);
+    save();
+    render();
+    $(`#sheet [data-act=cardRest][data-v="${el.dataset.v === 'reset' ? '15' : el.dataset.v}"]`)?.focus();
   },
   // The step belongs to the exercise, so this doesn't store a workout that's only shown.
   cardStep: el => {
@@ -1029,7 +1144,7 @@ const A = {
     tickSet(st, r, Date.now());
     if (!slotOpen(s.slots[i])) openCards(sessKey(m, ui.at.w, d)).delete(i); // its last set: collapse it
     save();
-    if (!s.done) startRest(m.days[d].exercises[i].type, { w: ui.at.w, d, i, j }); // never while editing a finished one
+    if (!s.done) { startRest(m, s, d, { w: ui.at.w, d, i, j }); keepAwake(true); } // never while editing a finished one
     render();
     if (!s.done) scrollToCurrent(cur0, currentSlot(s), i);
   },
@@ -1200,6 +1315,7 @@ const A = {
     const changes = finishSession(m, w, d, s, Date.now()).changes.map(c => `${exById(c.exId)?.name} ${c.from}→${c.to}`);
     ui.at = null;
     stopRest();
+    keepAwake(false);
     save();
     render();
     window.scrollTo(0, 0);
@@ -1347,13 +1463,30 @@ const A = {
     render();
   },
 
-  restAdd: () => { if (rest) { rest.end += 30000; rest.fired = false; tickRest(); } },
+  // ±15 on the bar: this rest only (the exercise's own length is set in its ⋯ sheet).
+  restAdj: el => {
+    if (!rest) return;
+    const now = Date.now();
+    rest.end = adjustRest(rest.end, +el.dataset.v, now);
+    if (restState(rest, now).state === 'running') rest.fired = false;
+    restSave();
+    restShown = '';
+    tickRest();
+    $(`#rest [data-act=restAdj][data-v="${el.dataset.v}"]`)?.focus();
+  },
   restSkip: () => stopRest(),
 };
 
 function onBind(t) {
   const b = t.dataset.bind;
   if (b === 'restMain' || b === 'restAcc') { S.settings[b] = +t.value; save(); return; }
+  if (b === 'beepLoud' || b === 'keepAwake') {
+    S.settings[b] = t.checked;
+    save();
+    if (b === 'beepLoud') unlockAudio();            // a tap: a good moment to switch the audio session
+    else keepAwake(t.checked && workoutOpen());
+    return;
+  }
   if (b === 'progEx') { ui.progEx = t.value; render(); return; }
   if (b === 'exMuscle') { exById(t.dataset.id).muscle = t.value; save(); render(); return; }
   if (b === 'step') {
@@ -1474,7 +1607,11 @@ $('#importFile').addEventListener('change', async e => {
 });
 
 // The timer keeps an absolute end time, so it catches up after the phone sleeps.
-document.addEventListener('visibilitychange', () => { if (rest && !document.hidden) tickRest(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { keepAwake(false); return; }
+  restoreRest();
+  if (workoutOpen()) keepAwake(true);
+});
 
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   // A waiting update applies itself when the app returns to the foreground, unless something is in progress.
@@ -1491,3 +1628,4 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
 }
 
 render();
+restoreRest();

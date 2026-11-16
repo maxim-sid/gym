@@ -168,7 +168,7 @@ ol.hint { padding-left: 20px; }
 #tabs button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); padding: 4px 0; min-height: 48px; }
 #tabs svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 #tabs button.on { color: var(--acc); }
-#rest { position: fixed; left: 12px; right: 12px; bottom: calc(68px + env(safe-area-inset-bottom, 0px)); max-width: 536px; margin: 0 auto; display: flex; align-items: center; gap: 10px; background: var(--card2); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; z-index: 11; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+#rest { position: fixed; left: 12px; right: 12px; bottom: calc(68px + env(safe-area-inset-bottom, 0px)); max-width: 536px; margin: 0 auto; min-height: 56px; display: flex; align-items: center; gap: 2px; background: var(--card2); border: 1px solid var(--line); border-radius: 14px; padding: 4px 4px 4px 12px; z-index: 11; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
 #rest[hidden] { display: none; }
 /* Next/Finish bar: the same slot as the rest bar, which replaces it while it runs (#rest comes first in the DOM). */
 #nextbar { position: fixed; left: 12px; right: 12px; bottom: calc(68px + env(safe-area-inset-bottom, 0px)); max-width: 536px; margin: 0 auto; height: 48px; display: flex; align-items: center; gap: 8px; background: var(--card2); border: 1px solid var(--line); border-radius: 14px; padding: 0 4px 0 2px; z-index: 11; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
@@ -177,9 +177,21 @@ ol.hint { padding-left: 20px; }
 .nb-fin { flex: none; min-width: 84px; }
 .banner.stale { background: rgba(255,176,32,.12); color: var(--warn); }
 .banner.stale .row { margin-top: 8px; }
-#rest .t { font-size: 22px; font-variant-numeric: tabular-nums; flex: 1; }
-#rest.go { background: var(--acc); border-color: var(--acc); color: var(--on-acc); }
-#rest.go .muted { color: var(--on-acc); }
+.line.tog { min-height: 52px; gap: 12px; }
+.line.tog input { width: 24px; height: 24px; min-height: 0; flex: none; accent-color: var(--acc); }
+.rrow { gap: 8px; align-items: center; }
+.rrow .rv { min-width: 48px; font-variant-numeric: tabular-nums; }
+#rest .rinfo { flex: 1; min-width: 0; }
+#rest .rtop { display: flex; align-items: baseline; gap: 8px; }
+#rest .rl { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+#rest .t { font-size: 22px; font-variant-numeric: tabular-nums; }
+#rest .rnext { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#rest .rb { width: 44px; height: 44px; flex: none; border-radius: 10px; font-weight: 700; font-size: 14px; }
+/* GO: solid green, dark text (#04130a on --ok ≈ 11:1) */
+#rest.go { background: var(--ok); border-color: var(--ok); color: #04130a; }
+#rest.go .go-t { font-size: 22px; font-weight: 800; }
+#rest.go .t { font-size: 18px; font-weight: 700; }
+#rest.go .rnext, #rest.go .rb { color: #04130a; }
 /* bottom sheet */
 #sheet[hidden] { display: none; }
 .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 25; }

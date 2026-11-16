@@ -26,7 +26,7 @@
   function freshState() {
     return {
       v: 1,
-      settings: { unit: 'kg', restMain: 180, restAcc: 90 },
+      settings: { unit: 'kg', restMain: 180, restAcc: 90, beepLoud: false, keepAwake: false },
       exercises: DEFAULT_EX.map(([name, muscle]) => ({ id: uid(), name, muscle, bw: BW_NAMES.includes(name), timed: false })),
       mesos: [],
       activeId: null,
@@ -43,6 +43,8 @@
       fill(s.settings, 'unit', 'kg');
       fill(s.settings, 'restMain', 180);
       fill(s.settings, 'restAcc', s.settings.rest ?? 90);
+      fill(s.settings, 'beepLoud', false);   // 2.8: both opt-in
+      fill(s.settings, 'keepAwake', false);
     }
     fill(s, 'exercises', []);
     fill(s, 'mesos', []);
@@ -427,6 +429,27 @@
   // Ticking into this session now would merge a new workout into an old one.
   const isStale = (s, now) => !!s && !s.done && !s.skipped && lastTick(s) != null && now - lastTick(s) > STALE_MS;
 
+  /* ---------- rest timer (2.8) ---------- */
+  const REST_KEY = 'liftbook-rest';            // the running timer, outside the data (S); every access in try/catch
+  const REST_OVER_MAX = 600;                    // overtime shown up to 10 min, then the timer is gone
+  // Per-exercise rest lengths: 15 s steps, 15 s to 10 min.
+  const clampRest = secs => Math.min(600, Math.max(15, Math.round(+secs / 15) * 15 || 15));
+  // The rest after a set of slot i (day d): the plan slot's own length, else the Settings default for its type.
+  const restFor = (m, d, i, settings) => {
+    const slot = m.days[d]?.exercises[i];
+    return +slot?.rest > 0 ? +slot.rest : slot?.type === 'main' ? settings.restMain : settings.restAcc;
+  };
+  // rest {end} at time now → {state: 'running', secs left} | {state: 'over', secs past zero} | {state: 'expired'}
+  function restState(rest, now) {
+    if (!rest || !(+rest.end > 0)) return { state: 'expired', secs: 0 };
+    const ms = rest.end - now;
+    if (ms > 0) return { state: 'running', secs: Math.ceil(ms / 1000) };
+    const over = Math.floor((now - rest.end) / 1000);
+    return over < REST_OVER_MAX ? { state: 'over', secs: over } : { state: 'expired', secs: over };
+  }
+  // ±15 on the bar: moves the end of a running rest (never into the past); +15 in overtime starts 15 s from now.
+  const adjustRest = (end, delta, now) => Math.max(now, Math.max(end, now) === end ? end + delta * 1000 : now + delta * 1000);
+
   /* ---------- skip / discard a workout (2.5) ---------- */
   // Sets a Discard would delete: done or with numbers typed.
   const loggedSets = s => s.slots.reduce((n, sl) => n + sl.sets.filter(x => x.done || typedSet(x)).length, 0);
@@ -803,6 +826,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, REST_KEY, clampRest, restFor, restState, adjustRest };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);
