@@ -570,7 +570,7 @@
   }
 
   // A waiting app update may reload the page only when nothing in progress would be lost.
-  const canAutoUpdate = ({ rest, focused, sheet, edit }) => !rest && !focused && !sheet && !edit;
+  const canAutoUpdate = ({ rest, focused, sheet, edit, draft, toast }) => !rest && !focused && !sheet && !edit && !draft && !toast;
 
   const api = { DEFAULT_EX, uid, freshState, normalize, validate, loadFrom, loadState, summarize, importInto,
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,

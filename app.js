@@ -977,7 +977,7 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
       if (document.hidden) return;
       await reg.update().catch(() => {});
       const focused = !!document.activeElement?.matches('input, select, textarea');
-      if (reg.waiting && canAutoUpdate({ rest: !!rest, focused, sheet: !!ui.sheet, edit: !!ui.edit })) { asked = true; reg.waiting.postMessage('skip'); }
+      if (reg.waiting && canAutoUpdate({ rest: !!rest, focused, sheet: !!ui.sheet, edit: !!ui.edit, draft: !!ui.draft, toast: !!toastAction })) { asked = true; reg.waiting.postMessage('skip'); }
     });
   });
 }
