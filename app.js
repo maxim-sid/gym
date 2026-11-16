@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof setStep !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -107,6 +107,14 @@ function writeGuard() {
   return () => canWrite(m.log[`${w}-${d}`], key, ui.edit) && activeMeso() === m;
 }
 
+// Same rule as curW, without storing the session: for sheet actions that don't write the workout itself.
+function cardWritable() {
+  const m = activeMeso(), { w, d } = ui.at;
+  if (canWrite(session(m, w, d), sessKey(m, w, d), ui.edit)) return true;
+  toast('Tap Edit to change a finished workout');
+  return false;
+}
+
 function curW() {
   const m = activeMeso();
   const { w, d } = ui.at;
@@ -195,6 +203,7 @@ function viewToday() {
     h += `<div class="card"><div class="exhead"><div><h2>${esc(ex?.name)}</h2>
       <div class="tags"><span class="tag">${esc(ex?.muscle)}</span>${meta.type === 'main' ? '<span class="tag main">Main</span>' : ''}
       ${meta.reps ? `<span class="muted">${sl.sets.length} × ${repsTxt(meta.reps, isTimed(ex, meta))}</span>` : ''}</div></div>
+      ${ro ? '' : `<button class="icon more" data-act="cardMenu" data-i="${i}" aria-label="More for ${esc(ex?.name)}">⋯</button>`}
       </div>
       ${last ? `<div class="last">Last · ${fmtDate(last.date)}: ${fmtSets(last.sets, ex, unit())}</div>` : ''}
       ${meta.notes ? `<div class="note">${esc(meta.notes)}</div>` : ''}
@@ -371,7 +380,7 @@ function viewExercises() {
           ${[['bw', 'BW', 'Bodyweight: log the added weight; blank means bodyweight only'], ['timed', 'Timed', 'Timed: log seconds']].map(([k, l, t]) =>
             `<button class="chip tog ${e[k] ? 'on' : ''}" data-act="exFlag" data-id="${e.id}" data-k="${k}" aria-pressed="${!!e[k]}" title="${t}">${l}</button>`).join('')}
           <select class="stepsel" data-bind="step" data-id="${e.id}" aria-label="Weight step for ${esc(e.name)}">
-            <option value="">±${stepOf(null, unit())}</option>${[1, 1.25, 2, 2.5, 5].map(v => `<option value="${v}" ${+e.step === v ? 'selected' : ''}>±${v}</option>`).join('')}</select>
+            <option value="">±${stepOf(null, unit())}</option>${STEPS.map(v => `<option value="${v}" ${+e.step === v ? 'selected' : ''}>±${v}</option>`).join('')}</select>
           <button class="icon del ${canDeleteExercise(u) && !draftUses(ui.draft, e.id) ? '' : 'off'}" data-act="delExercise" data-id="${e.id}" aria-label="Delete ${esc(e.name)}">✕</button>
         </div></div>`;
     }).join('')}</div>`;
@@ -419,8 +428,7 @@ function sheetFinish() {
   const s = session(m, w, d) ?? blankSession(m, w, d);
   const rv = finishReview(s);
   const btn = (mode, label, primary) => `<button class="btn block ${primary ? 'primary' : ''}" data-act="finishGo" data-mode="${mode}">${label}</button>`;
-  let h = `<h2>Finish ${esc(m.days[d].name)}?</h2>
-    <p class="meta">${rv.exercises} of ${rv.of} exercises · ${rv.sets} set${rv.sets === 1 ? '' : 's'}</p>`;
+  let h = `<p class="meta">${rv.exercises} of ${rv.of} exercises · ${rv.sets} set${rv.sets === 1 ? '' : 's'}</p>`;
   if (rv.nothing) {
     h += `<p class="warn">Nothing logged yet.</p>${btn('plain', 'Finish anyway')}`;
   } else if (rv.typed.length) {
@@ -434,16 +442,47 @@ function sheetFinish() {
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const tidy = [rv.notStarted && `${plural(rv.notStarted, 'exercise')} not started`, rv.empty && `${plural(rv.empty, 'unused set')} removed`].filter(Boolean);
   if (tidy.length && !rv.nothing) h += `<p class="hint">${tidy.join(' · ')}</p>`;
-  return h + '<button class="btn block" data-act="sheetCancel">Keep training</button>';
+  return { title: `Finish ${esc(m.days[d].name)}?`, body: h, cancel: 'Keep training' };
 }
 
-const SHEETS = { finish: sheetFinish };
+// Card ⋯ sheet: actions for one exercise of the open workout. Later items add their rows here.
+function sheetCard() {
+  const m = activeMeso(), { w, d } = ui.at, { key, i } = ui.sheet;
+  const s = session(m, w, d) ?? blankSession(m, w, d); // the next workout is shown before it's stored
+  const ex = exById(s.slots[i]?.exId);
+  if (key !== sessKey(m, w, d) || !ex) return null; // workout changed under the sheet
+  const cur = stepOf(ex, unit());
+  return {
+    title: esc(ex.name),
+    body: `<div class="srow"><span>Weight step · ${unit()}</span><div class="chips">${STEPS.map(v =>
+      `<button class="chip ${v === cur ? 'on' : ''}" data-act="cardStep" data-v="${v}" aria-pressed="${v === cur}">${v}</button>`).join('')}</div></div>`,
+  };
+}
 
+const SHEETS = { finish: sheetFinish, card: sheetCard };
+
+// Shell shared by every sheet: title, body, Cancel at the bottom; the backdrop also cancels.
 function renderSheet() {
   const el = $('#sheet');
-  el.hidden = !ui.sheet;
-  el.innerHTML = ui.sheet ? `<div class="sheet-bg" data-act="sheetCancel"></div>
-    <div class="sheet" role="dialog" aria-modal="true">${SHEETS[ui.sheet.kind]()}</div>` : '';
+  const sp = ui.sheet && SHEETS[ui.sheet.kind]();
+  if (ui.sheet && !sp) ui.sheet = null;
+  el.hidden = !sp;
+  el.innerHTML = sp ? `<div class="sheet-bg" data-act="sheetCancel"></div>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title"><h2 id="sheet-title">${sp.title}</h2>${sp.body}
+    <button class="btn block" data-act="sheetCancel">${sp.cancel || 'Cancel'}</button></div>` : '';
+}
+
+// Open a sheet and move focus into it (VoiceOver starts there). ret: selector to refocus on close.
+function openSheet(spec, ret) {
+  ui.sheet = { ...spec, ret };
+  render();
+  $('#sheet .sheet button')?.focus();
+}
+function closeSheet() {
+  const ret = ui.sheet?.ret;
+  ui.sheet = null;
+  render();
+  if (ret) $(ret)?.focus();
 }
 
 function render() {
@@ -590,7 +629,23 @@ const newMeso = fields => ({ id: uid(), ...fields, log: {}, pos: { w: 0, d: 0 },
 const A = {
   tab: el => { ui.tab = el.dataset.tab; ui.edit = null; ui.sheet = null; ui.renaming = null; cancelToast(); render(); window.scrollTo(0, 0); },
   goto: el => { ui.at = { meso: S.activeId, w: +el.dataset.w, d: +el.dataset.d }; ui.edit = null; ui.sheet = null; cancelToast(); render(); },
-  sheetCancel: () => { ui.sheet = null; render(); },
+  sheetCancel: () => closeSheet(),
+  // ⋯ on an exercise card. Hidden on a finished workout unless Edit is on; checked again here.
+  cardMenu: el => {
+    if (!cardWritable()) return;
+    const m = activeMeso(), { w, d } = ui.at;
+    openSheet({ kind: 'card', key: sessKey(m, w, d), i: +el.dataset.i }, `[data-act="cardMenu"][data-i="${el.dataset.i}"]`);
+  },
+  // The step belongs to the exercise, so this doesn't store a workout that's only shown.
+  cardStep: el => {
+    const m = activeMeso(), { w, d } = ui.at;
+    const ex = cardWritable() && exById((session(m, w, d) ?? blankSession(m, w, d)).slots[ui.sheet?.i]?.exId);
+    if (!ex) { closeSheet(); return; }
+    setStep(ex, el.dataset.v);
+    save();
+    closeSheet();
+    toast(`Weight step for ${ex.name}: ${ex.step} ${unit()}`);
+  },
   toastAct: () => {
     const a = toastAction;
     cancelToast();
@@ -673,9 +728,7 @@ const A = {
   finish: () => {
     const c0 = curW();
     if (!c0 || c0.s.done) return; // Finish runs once; editing a finished workout never re-runs it
-    ui.sheet = { kind: 'finish' };
-    render();
-    $('#sheet .sheet .btn')?.focus(); // VoiceOver starts in the sheet
+    openSheet({ kind: 'finish' });
   },
   finishGo: el => {
     ui.sheet = null;
@@ -858,7 +911,7 @@ function onBind(t) {
   if (b === 'exMuscle') { exById(t.dataset.id).muscle = t.value; save(); render(); return; }
   if (b === 'step') {
     const ex = exById(t.dataset.id);
-    if (t.value === '') delete ex.step; else ex.step = +t.value;
+    setStep(ex, t.value);
     save();
     return;
   }
@@ -926,6 +979,7 @@ function commitRename(inp, fromBlur) {
 }
 document.addEventListener('keydown', e => {
   const t = e.target;
+  if (e.key === 'Escape' && ui.sheet) { closeSheet(); return; }
   if (!t.dataset?.rename) return;
   if (e.key === 'Enter') { e.preventDefault(); commitRename(t); }
   else if (e.key === 'Escape') { ui.renaming = null; render(); }

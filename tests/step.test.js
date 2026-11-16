@@ -111,3 +111,16 @@ test('chip Undo = a second toggle: clears exactly what the first one filled', ()
   C.toggleBump(sl, L, 2.5, [8, 10]);
   assert.deepEqual(sl, before);
 });
+
+test('setStep: offered steps are stored, anything else clears to the unit default', () => {
+  const { setStep, STEPS, stepOf } = require('../core.js');
+  assert.deepEqual(STEPS, [1, 1.25, 2, 2.5, 5]);
+  const ex = {};
+  assert.equal(setStep(ex, '2').step, 2);
+  assert.equal(stepOf(ex, 'kg'), 2);
+  setStep(ex, 1.25); assert.equal(ex.step, 1.25);
+  setStep(ex, ''); assert.equal('step' in ex, false);
+  assert.equal(stepOf(ex, 'kg'), 2.5);
+  setStep(ex, 3); assert.equal('step' in ex, false);
+  setStep(ex, -1); assert.equal('step' in ex, false);
+});

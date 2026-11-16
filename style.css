@@ -157,6 +157,12 @@ ol.hint { padding-left: 20px; }
 .sheet h2 { margin-bottom: 4px; }
 .sheet .btn.block { min-height: 48px; margin-bottom: 10px; }
 .sheet .warn { font-size: 14px; }
+.sheet h2 { overflow-wrap: anywhere; }
+.srow { padding: 10px 0 14px; border-top: 1px solid var(--line); }
+.srow > span { display: block; margin-bottom: 8px; color: var(--muted); font-size: 14px; }
+.srow .chip { min-height: 48px; min-width: 52px; }
+.srow + .btn.block { margin-top: 4px; }
+.icon.more { font-size: 22px; line-height: 1; margin: -8px -8px 0 0; }
 
 /* Bottom, above the rest bar (68 px tabs + ~64 px rest bar) and the home indicator. */
 #toast { position: fixed; left: 50%; bottom: calc(140px + env(safe-area-inset-bottom)); transform: translate(-50%, 12px); opacity: 0; pointer-events: none; display: flex; align-items: center; gap: 12px; background: var(--text); color: var(--bg); padding: 6px 6px 6px 16px; min-height: 44px; border-radius: 12px; font-size: 14px; font-weight: 600; width: max-content; max-width: calc(100% - 32px); transition: transform .2s, opacity .2s; z-index: 20; }
