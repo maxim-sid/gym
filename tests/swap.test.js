@@ -140,7 +140,7 @@ test('lastPerf: a later occurrence skips past slots where the exercise was only 
   m.days[0].exercises = plan.map(exId => ({ exId, plan: [1], reps: [6, 8], type: 'main' }));
   // Last time: slot 2 (planned incline) was swapped to dips at 5 kg; the planned dips slots did 20 and 10.
   m.log = { '0-0': { date: 500, done: true, slots: [
-    { exId: 'dips', sets: [set(20, 8)] }, { exId: 'sq', sets: [set(100, 8)] }, { exId: 'dips', sets: [set(5, 12)] }, { exId: 'dips', sets: [set(10, 12)] },
+    { exId: 'dips', sets: [set(20, 8)] }, { exId: 'sq', sets: [set(100, 8)] }, { exId: 'dips', from: 'incl', sets: [set(5, 12)] }, { exId: 'dips', sets: [set(10, 12)] },
   ] } };
   assert.deepEqual(C.lastPerf(S, 'dips', { occurrence: 1 }).sets, [set(10, 12)]);  // not the substitute's 5 kg
   assert.deepEqual(C.lastPerf(S, 'dips').sets, [set(20, 8)]);
@@ -228,4 +228,57 @@ test('rp progression after a block swap applies to the new exercise from the bas
   // The stored future session (no done sets) takes the new count too.
   assert.equal(m.log['2-0'].slots[0].sets.length, 4);
   assert.equal(m.log['2-0'].slots[0].exId, 'ring');
+});
+
+/* ---------- sl.from: a swap is recorded on the slot, not inferred from today's plan ---------- */
+
+test('swapToday records from; swapping back to the planned exercise removes it', () => {
+  const s = { slots: [{ exId: 'dips', sets: [blank()], fb: {} }] };
+  C.swapToday(s, 0, 'ring');
+  assert.equal(s.slots[0].from, 'dips');
+  C.swapToday(s, 0, 'incl');                  // a second swap still remembers the planned one
+  assert.equal(s.slots[0].from, 'dips');
+  C.swapToday(s, 0, 'dips');
+  assert.equal('from' in s.slots[0], false);
+  C.swapToday(s, 0, 'ring');
+  C.unswap(null, 0, s, 0);
+  assert.deepEqual(s.slots[0], { exId: 'dips', sets: [blank()], fb: {} });
+});
+
+test('an old finished session does not look swapped after a rest-of-block swap', () => {
+  const { m } = block();
+  C.swapBlock(m, 0, 0, 'ring', '1-0');
+  assert.equal(m.days[0].exercises[0].exId, 'ring');
+  assert.equal(C.swappedFrom(m, 0, m.log['0-0'], 0), null);   // finished with dips before the swap
+  assert.equal(C.swappedFrom(m, 0, m.log['3-0'], 0), null);   // kept its logged dips
+  assert.equal(C.occurrenceOf(m, 0, m.log['0-0'], 0), 0);
+});
+
+test('today-only swap, then rest-of-block swap: from is gone everywhere it was rewritten', () => {
+  const { m } = block();
+  C.swapToday(m.log['1-0'], 0, 'ring');
+  C.swapToday(m.log['2-0'], 0, 'incl');
+  assert.equal(m.log['1-0'].slots[0].from, 'dips');
+  const r = C.swapBlock(m, 0, 0, 'ring', '1-0');
+  assert.ok(r.snap);
+  for (const k of ['1-0', '2-0']) {
+    assert.equal(m.log[k].slots[0].exId, 'ring');
+    assert.equal('from' in m.log[k].slots[0], false, k);
+    assert.equal(C.swappedFrom(m, 0, m.log[k], 0), null);
+  }
+  C.restoreBlock(m, 0, 0, r.snap);                              // Undo brings the today-only swaps back
+  assert.deepEqual([m.log['1-0'].slots[0].from, m.log['2-0'].slots[0].exId], ['dips', 'incl']);
+});
+
+test('rp finish goes by from: a recorded swap holds the count, a plain slot progresses', () => {
+  const { m } = block();
+  m.style = 'rp';
+  m.days[0].exercises[0].plan = [2, 2, 2];
+  const s = m.log['1-0'];
+  C.swapToday(s, 0, 'ring');
+  s.slots[0].sets = [set(0, 12), set(0, 12)];
+  s.slots[0].fb = { sore: 0, pump: 0, work: 0, joint: 0 };     // would be +2
+  s.slots[1].sets = [set(100, 8)];
+  assert.deepEqual(C.finishSession(m, 1, 0, s, 1000).changes.filter(c => c.exId === 'dips'), []);
+  assert.equal(m.days[0].exercises[0].plan[2], 2);
 });

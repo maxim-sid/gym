@@ -253,7 +253,7 @@
     if (!isFixed(m) && !isDeload(m, w) && w + 1 < m.weeks) {
       m.days[d].exercises.forEach((slot, i) => {
         // A swapped slot's feedback is about the substitute, so the planned exercise's count holds.
-        const n = s.slots[i].exId !== slot.exId ? base[i] : Math.max(1, Math.min(12, base[i] + setDelta(s.slots[i].fb)));
+        const n = swappedFrom(m, d, s, i) ? base[i] : Math.max(1, Math.min(12, base[i] + setDelta(s.slots[i].fb)));
         slot.plan[w + 1] = n;
         if (n !== base[i]) changes.push({ exId: slot.exId, from: base[i], to: n });
         const next = m.log[`${w + 1}-${d}`];
@@ -557,10 +557,12 @@
     return { muscle, recent, all, other, add };
   }
 
-  // The planned exercise when slot i of a session does something else today, else null.
+  // The planned exercise when slot i of a session does something else today, else null. Read from sl.from,
+  // written by swapToday at the time of the swap, NOT by comparing with the current plan: after a rest-of-block
+  // swap the plan changes, and older sessions must not start looking swapped. (m, d: kept for the callers.)
   const swappedFrom = (m, d, s, i) => {
-    const plan = m.days[d]?.exercises[i]?.exId;
-    return plan && s.slots[i] && s.slots[i].exId !== plan ? plan : null;
+    const sl = s.slots[i];
+    return sl?.from && sl.from !== sl.exId ? sl.from : null;
   };
 
   // lastPerf's occurrence for slot i: earlier UNSWAPPED slots doing the same planned exercise.
@@ -583,6 +585,8 @@
     if (sl.exId === newExId) return { error: 'same' };
     if (sl.sets.some(x => x.done)) return { error: 'done' };
     const snap = snapSlot(sl);
+    const planned = sl.from ?? sl.exId; // what the plan had when this slot was first swapped (or now)
+    if (newExId === planned) delete sl.from; else sl.from = planned;
     sl.exId = newExId;
     sl.sets = sl.sets.map(() => ({ w: '', r: '', done: false }));
     sl.fb = {};
@@ -602,9 +606,13 @@
     if (slot.exId === newExId && today.slots[i].exId === newExId) return { error: 'same' };
     const snap = { plan: snapSlot(slot), slots: {} };
     for (const [k, s] of Object.entries(m.log)) {
-      if (+k.split('-')[1] !== d || s.done || s.skipped || !s.slots[i]) continue;
-      const r = swapToday(s, i, newExId); // refuses a slot with done sets; 'same' needs no change
-      if (r.snap) snap.slots[k] = r.snap;
+      const sl = s.slots[i];
+      if (+k.split('-')[1] !== d || s.done || s.skipped || !sl || sl.sets.some(x => x.done)) continue;
+      if (sl.exId === newExId && !sl.from) continue; // already doing it, as planned
+      const before = snapSlot(sl);
+      swapToday(s, i, newExId); // 'same' when it already does newExId (a today-only swap): only `from` goes
+      delete sl.from;           // the plan now does newExId, so this slot is no longer a swap
+      snap.slots[k] = before;
     }
     slot.exId = newExId;
     if (clearNote) slot.notes = '';
@@ -618,8 +626,8 @@
     }
   }
 
-  // Back to the planned exercise: the same rules as a swap.
-  const unswap = (m, d, s, i) => swappedFrom(m, d, s, i) ? swapToday(s, i, m.days[d].exercises[i].exId) : { error: 'same' };
+  // Back to the planned exercise (sl.from): the same rules as a swap.
+  const unswap = (m, d, s, i) => { const from = swappedFrom(m, d, s, i); return from ? swapToday(s, i, from) : { error: 'same' }; };
 
   function perfFor(S, exId) {
     const out = [];
