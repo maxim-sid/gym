@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof swapToday !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof occurrenceOf !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -86,7 +86,7 @@ function slotCtx(m, w, d, s, i) {
   const ex = exById(sl.exId);
   const meta = m.days[d].exercises[i];
   const deload = isDeload(m, w);
-  const occurrence = s.slots.slice(0, i).filter(x => x.exId === sl.exId).length;
+  const occurrence = occurrenceOf(m, d, s, i);
   const last = lastPerf(S, sl.exId, { exclude: s, occurrence, before: s.done ? s.date : Infinity });
   const { hitTop, weighted } = slotHints(last, meta.reps, deload);
   const step = stepOf(ex, unit());
@@ -202,7 +202,7 @@ function viewToday() {
     const chip = hitTop && weighted && !ro
       ? `<button class="chip bump ${bumpOn(_sl) ? 'on' : ''}" data-act="bump" data-i="${i}">+${step} ${unit()}</button>` : '';
     h += `<div class="card"><div class="exhead"><div><h2>${esc(ex?.name)}</h2>
-      ${from && !s.done ? `<div class="swapped">instead of ${esc(exById(from)?.name)}${ro || sl.sets.some(x => x.done) ? ''
+      ${from && (!s.done || editing(m, w, d)) ? `<div class="swapped">instead of ${esc(exById(from)?.name)}${ro || sl.sets.some(x => x.done) ? ''
         : ` · <button class="lnk" data-act="unswap" data-i="${i}">Undo swap</button>`}</div>` : ''}
       <div class="tags"><span class="tag">${esc(ex?.muscle)}</span>${meta.type === 'main' ? '<span class="tag main">Main</span>' : ''}
       ${meta.reps ? `<span class="muted">${sl.sets.length} × ${repsTxt(meta.reps, isTimed(ex, meta))}</span>` : ''}</div></div>
@@ -226,7 +226,8 @@ function viewToday() {
     h += '</div>';
     if (!ro) h += `<div class="row"><button class="btn sm" data-act="addSet" data-i="${i}">+ Set</button>
       <button class="btn sm ${canRemoveLastSet(sl) ? '' : 'off'}" data-act="rmSet" data-i="${i}" aria-disabled="${!canRemoveLastSet(sl)}">− Set</button></div>`;
-    if (!ro && sl.sets.length && sl.sets.every(x => x.done) && !deload && !isFixed(m)) h += fbHtml(sl, i);
+    // No feedback for a swapped slot: it never changes the planned exercise's set count.
+    if (!ro && !from && sl.sets.length && sl.sets.every(x => x.done) && !deload && !isFixed(m)) h += fbHtml(sl, i);
     h += '</div>';
   });
 
@@ -698,7 +699,11 @@ const A = {
     const m = activeMeso(), { w, d } = ui.at;
     const cur = exById((session(m, w, d) ?? blankSession(m, w, d)).slots[ui.sheet.i]?.exId);
     const g = cur && swapCandidates(S, cur.id, ui.sheet.q);
-    if (g?.add) doSwap(ensureExercise(g.add, g.muscle).id);
+    if (!g?.add) return;
+    // Check the swap is allowed before creating the exercise, so a refusal leaves nothing behind.
+    if (ui.sheet.key !== sessKey(m, w, d)) { closeSheet(); return; }
+    if ((session(m, w, d) ?? blankSession(m, w, d)).slots[ui.sheet.i].sets.some(x => x.done)) { closeSheet(); toast('Untick the logged sets first to swap'); return; }
+    doSwap(ensureExercise(g.add, g.muscle).id);
   },
   unswap: el => {
     const c = curW();
@@ -1054,6 +1059,12 @@ function commitRename(inp, fromBlur) {
 }
 document.addEventListener('keydown', e => {
   const t = e.target;
+  // Enter / Search in the swap field: the first result, or Add when that's the only row.
+  if (e.key === 'Enter' && 'swapq' in (t.dataset || {})) {
+    e.preventDefault();
+    if (t.value.trim()) ($('#swaplist [data-act=swapPick]') || $('#swaplist [data-act=swapAdd]'))?.click();
+    return;
+  }
   if (e.key === 'Escape' && ui.sheet) { closeSheet(); return; }
   if (!t.dataset?.rename) return;
   if (e.key === 'Enter') { e.preventDefault(); commitRename(t); }

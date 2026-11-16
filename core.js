@@ -252,7 +252,8 @@
     const changes = [];
     if (!isFixed(m) && !isDeload(m, w) && w + 1 < m.weeks) {
       m.days[d].exercises.forEach((slot, i) => {
-        const n = Math.max(1, Math.min(12, base[i] + setDelta(s.slots[i].fb)));
+        // A swapped slot's feedback is about the substitute, so the planned exercise's count holds.
+        const n = s.slots[i].exId !== slot.exId ? base[i] : Math.max(1, Math.min(12, base[i] + setDelta(s.slots[i].fb)));
         slot.plan[w + 1] = n;
         if (n !== base[i]) changes.push({ exId: slot.exId, from: base[i], to: n });
         const next = m.log[`${w + 1}-${d}`];
@@ -561,6 +562,11 @@
     return plan && s.slots[i] && s.slots[i].exId !== plan ? plan : null;
   };
 
+  // lastPerf's occurrence for slot i: earlier UNSWAPPED slots doing the same planned exercise.
+  // A swapped slot always uses 0 (the substitute's most recent slot).
+  const occurrenceOf = (m, d, s, i) => swappedFrom(m, d, s, i) ? 0
+    : s.slots.slice(0, i).filter((x, k) => x.exId === s.slots[i].exId && !swappedFrom(m, d, s, k)).length;
+
   const snapSlot = sl => JSON.parse(JSON.stringify(sl));
   function restoreSlot(sl, snap) {
     Object.keys(sl).forEach(k => delete sl[k]);
@@ -635,6 +641,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, snapSlot, restoreSlot, swapToday, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

@@ -104,3 +104,32 @@ test('KNOWN-1: a substitute’s weights never show up as the planned exercise’
   assert.deepEqual(C.perfFor(S, 'dips').map(p => p.date), [300]);
   assert.deepEqual(C.perfFor(S, 'ring').map(p => p.date), [400]);
 });
+
+test('finishSession: a swapped slot keeps the planned set count, whatever its feedback', () => {
+  const S = state(), m = S.mesos[0];
+  m.style = 'rp'; m.log = {}; m.pos = { w: 0, d: 0 };
+  const s = C.session(m, 0, 0, true);
+  C.swapToday(s, 0, 'ring');
+  s.slots[0].sets = s.slots[0].sets.map(() => set(0, 10));
+  s.slots[0].fb = { sore: 0, pump: 0, work: 0, joint: 2 };   // "joint pain: a lot" (and otherwise "add sets")
+  s.slots[1].sets = s.slots[1].sets.map(() => set(100, 8));
+  s.slots[1].fb = { sore: 0, pump: 0, work: 0, joint: 0 };   // unswapped: +2 sets as usual
+  const { changes } = C.finishSession(m, 0, 0, s, 1000);
+  assert.equal(m.days[0].exercises[0].plan[1], 3);
+  assert.equal(m.days[0].exercises[0].exId, 'dips');
+  assert.equal(m.days[0].exercises[1].plan[1], 4);
+  assert.deepEqual(changes, [{ exId: 'sq', from: 2, to: 4 }]);
+});
+
+test('occurrenceOf: counts earlier unswapped slots of the same exercise; a swapped slot uses 0', () => {
+  const S = state(), m = S.mesos[0];
+  const plan = ['dips', 'sq', 'incl', 'dips'];
+  m.days[0].exercises = plan.map(exId => ({ exId, plan: [2], reps: [6, 8], type: 'main' }));
+  const s = { slots: plan.map(exId => ({ exId, sets: [blank()], fb: {} })) };
+  assert.deepEqual([0, 3].map(i => C.occurrenceOf(m, 0, s, i)), [0, 1]);
+  C.swapToday(s, 0, 'ring');                       // slot 0 does Ring Dip today
+  assert.deepEqual([0, 3].map(i => C.occurrenceOf(m, 0, s, i)), [0, 0]);
+  C.swapToday(s, 2, 'dips');                       // a substitute that happens to be dips: still 0 itself,
+  assert.equal(C.occurrenceOf(m, 0, s, 2), 0);     // and it doesn't shift the planned dips slot
+  assert.equal(C.occurrenceOf(m, 0, s, 3), 0);
+});
