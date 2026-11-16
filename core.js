@@ -157,9 +157,11 @@
   // Nearest multiple of step, without float noise (1.25 × 3 = 3.75, not 3.7500000000000004).
   const roundTo = (w, step) => Math.round(Math.round(w / step) * step * 1000) / 1000;
   // Weight step for an exercise: its own (dumbbells 2, dip belt 1.25 …) or the unit default.
-  // Weight steps offered in the card ⋯ sheet and on the Exercises tab. Anything else clears it (unit default).
+  // Weight steps offered in the card ⋯ sheet and on the Exercises tab. A stored step outside the list
+  // (plan.js or an import) is offered too, so it's never reset by accident. Not a positive number → unit default.
   const STEPS = [1, 1.25, 2, 2.5, 5];
-  const setStep = (ex, v) => { if (STEPS.includes(+v)) ex.step = +v; else delete ex.step; return ex; };
+  const stepChoices = ex => +ex?.step > 0 && !STEPS.includes(+ex.step) ? [...STEPS, +ex.step].sort((a, b) => a - b) : STEPS;
+  const setStep = (ex, v) => { if (+v > 0) ex.step = +v; else delete ex.step; return ex; };
   const stepOf = (ex, unit) => +ex?.step > 0 ? +ex.step : unit === 'kg' ? 2.5 : 5;
   const repsTxt = (r, timed) => (r ? (r[0] === r[1] ? `${r[0]}` : `${r[0]}–${r[1]}`) + (timed ? ' s' : '') : '');
   function parseReps(str) {
@@ -579,6 +581,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

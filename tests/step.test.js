@@ -112,7 +112,7 @@ test('chip Undo = a second toggle: clears exactly what the first one filled', ()
   assert.deepEqual(sl, before);
 });
 
-test('setStep: offered steps are stored, anything else clears to the unit default', () => {
+test('setStep: positive steps are stored, anything else clears to the unit default', () => {
   const { setStep, STEPS, stepOf } = require('../core.js');
   assert.deepEqual(STEPS, [1, 1.25, 2, 2.5, 5]);
   const ex = {};
@@ -121,6 +121,15 @@ test('setStep: offered steps are stored, anything else clears to the unit defaul
   setStep(ex, 1.25); assert.equal(ex.step, 1.25);
   setStep(ex, ''); assert.equal('step' in ex, false);
   assert.equal(stepOf(ex, 'kg'), 2.5);
-  setStep(ex, 3); assert.equal('step' in ex, false);
+  setStep(ex, 0.5); assert.equal(ex.step, 0.5); // e.g. re-picking a stored step outside the list
   setStep(ex, -1); assert.equal('step' in ex, false);
+  setStep(ex, 'x'); assert.equal('step' in ex, false);
+});
+
+test('stepChoices: a stored step outside the list is offered too, in order', () => {
+  const { stepChoices, STEPS } = require('../core.js');
+  assert.deepEqual(stepChoices({}), STEPS);
+  assert.deepEqual(stepChoices({ step: 2 }), STEPS);
+  assert.deepEqual(stepChoices({ step: 0.5 }), [0.5, 1, 1.25, 2, 2.5, 5]);
+  assert.deepEqual(stepChoices({ step: 10 }), [1, 1.25, 2, 2.5, 5, 10]);
 });

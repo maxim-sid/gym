@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof setStep !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -380,7 +380,7 @@ function viewExercises() {
           ${[['bw', 'BW', 'Bodyweight: log the added weight; blank means bodyweight only'], ['timed', 'Timed', 'Timed: log seconds']].map(([k, l, t]) =>
             `<button class="chip tog ${e[k] ? 'on' : ''}" data-act="exFlag" data-id="${e.id}" data-k="${k}" aria-pressed="${!!e[k]}" title="${t}">${l}</button>`).join('')}
           <select class="stepsel" data-bind="step" data-id="${e.id}" aria-label="Weight step for ${esc(e.name)}">
-            <option value="">±${stepOf(null, unit())}</option>${STEPS.map(v => `<option value="${v}" ${+e.step === v ? 'selected' : ''}>±${v}</option>`).join('')}</select>
+            <option value="">±${stepOf(null, unit())}</option>${stepChoices(e).map(v => `<option value="${v}" ${+e.step === v ? 'selected' : ''}>±${v}</option>`).join('')}</select>
           <button class="icon del ${canDeleteExercise(u) && !draftUses(ui.draft, e.id) ? '' : 'off'}" data-act="delExercise" data-id="${e.id}" aria-label="Delete ${esc(e.name)}">✕</button>
         </div></div>`;
     }).join('')}</div>`;
@@ -442,7 +442,7 @@ function sheetFinish() {
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const tidy = [rv.notStarted && `${plural(rv.notStarted, 'exercise')} not started`, rv.empty && `${plural(rv.empty, 'unused set')} removed`].filter(Boolean);
   if (tidy.length && !rv.nothing) h += `<p class="hint">${tidy.join(' · ')}</p>`;
-  return { title: `Finish ${esc(m.days[d].name)}?`, body: h, cancel: 'Keep training' };
+  return { title: `Finish ${esc(m.days[d].name)}?`, body: h, cancel: 'Keep training', focus: '[data-act=finishGo]' };
 }
 
 // Card ⋯ sheet: actions for one exercise of the open workout. Later items add their rows here.
@@ -454,7 +454,7 @@ function sheetCard() {
   const cur = stepOf(ex, unit());
   return {
     title: esc(ex.name),
-    body: `<div class="srow"><span>Weight step · ${unit()}</span><div class="chips">${STEPS.map(v =>
+    body: `<div class="srow"><span>Weight step · ${unit()}</span><div class="chips">${stepChoices(ex).map(v =>
       `<button class="chip ${v === cur ? 'on' : ''}" data-act="cardStep" data-v="${v}" aria-pressed="${v === cur}">${v}</button>`).join('')}</div></div>`,
   };
 }
@@ -467,8 +467,9 @@ function renderSheet() {
   const sp = ui.sheet && SHEETS[ui.sheet.kind]();
   if (ui.sheet && !sp) ui.sheet = null;
   el.hidden = !sp;
+  el.dataset.focus = sp?.focus || '';
   el.innerHTML = sp ? `<div class="sheet-bg" data-act="sheetCancel"></div>
-    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title"><h2 id="sheet-title">${sp.title}</h2>${sp.body}
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title"><h2 id="sheet-title" tabindex="-1">${sp.title}</h2>${sp.body}
     <button class="btn block" data-act="sheetCancel">${sp.cancel || 'Cancel'}</button></div>` : '';
 }
 
@@ -476,7 +477,8 @@ function renderSheet() {
 function openSheet(spec, ret) {
   ui.sheet = { ...spec, ret };
   render();
-  $('#sheet .sheet button')?.focus();
+  // Focus goes into the sheet (VoiceOver starts there): the sheet's own target, else its title.
+  ($(`#sheet .sheet ${$('#sheet').dataset.focus || 'h2'}`) || $('#sheet-title'))?.focus();
 }
 function closeSheet() {
   const ret = ui.sheet?.ret;

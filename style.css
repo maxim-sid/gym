@@ -157,7 +157,7 @@ ol.hint { padding-left: 20px; }
 .sheet h2 { margin-bottom: 4px; }
 .sheet .btn.block { min-height: 48px; margin-bottom: 10px; }
 .sheet .warn { font-size: 14px; }
-.sheet h2 { overflow-wrap: anywhere; }
+.sheet h2 { overflow-wrap: anywhere; outline: none; }
 .srow { padding: 10px 0 14px; border-top: 1px solid var(--line); }
 .srow > span { display: block; margin-bottom: 8px; color: var(--muted); font-size: 14px; }
 .srow .chip { min-height: 48px; min-width: 52px; }
