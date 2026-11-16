@@ -397,6 +397,36 @@
     return s.slots.findIndex(slotOpen);
   }
 
+  // The next set to do: {i, j} in the current card, or null when every set is done or skipped.
+  function nextSet(s) {
+    const i = currentSlot(s);
+    if (i < 0) return null;
+    return { i, j: s.slots[i].sets.findIndex(x => !x.done && !x.skip) };
+  }
+  // Every set ticked or skipped (and at least one ticked): Finish becomes the main action.
+  const allLogged = s => s.slots.some(sl => sl.sets.some(x => x.done)) && s.slots.every(sl => sl.skip || sl.sets.every(x => x.done || x.skip));
+
+  /* ---------- forgotten Finish (2.7) ---------- */
+  const STALE_MS = 6 * 3600e3;
+  // Newest tick time in a session, or null.
+  const lastTick = s => s.slots.reduce((mx, sl) => sl.sets.reduce((a, x) => (x.done && typeof x.t === 'number' && x.t > (a ?? -Infinity) ? x.t : a), mx), null);
+  // An unfinished, unskipped stored session whose newest tick is over 6 h old (the newest such one).
+  // → {key, w, d, t} | null
+  function staleSession(m, now) {
+    let best = null;
+    for (const [key, s] of Object.entries(m?.log || {})) {
+      if (s.done || s.skipped) continue;
+      const t = lastTick(s);
+      if (t != null && now - t > STALE_MS && (!best || t > best.t)) {
+        const [w, d] = key.split('-').map(Number);
+        best = { key, w, d, t };
+      }
+    }
+    return best;
+  }
+  // Ticking into this session now would merge a new workout into an old one.
+  const isStale = (s, now) => !!s && !s.done && !s.skipped && lastTick(s) != null && now - lastTick(s) > STALE_MS;
+
   /* ---------- skip / discard a workout (2.5) ---------- */
   // Sets a Discard would delete: done or with numbers typed.
   const loggedSets = s => s.slots.reduce((n, sl) => n + sl.sets.filter(x => x.done || typedSet(x)).length, 0);
@@ -773,6 +803,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

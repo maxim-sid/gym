@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof currentSlot !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof staleSession !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -46,7 +46,7 @@ const boot = loadState(store, Date.now());
 let mode = boot.mode;
 const readOnly = mode === 'readOnly';
 let S = boot.state;
-const ui = { tab: 'today', at: null, draft: null, progEx: null, edit: null, sheet: null, renaming: null, open: new Set(), openKey: null }; // edit: session key while editing a finished workout (not persisted)
+const ui = { tab: 'today', at: null, draft: null, progEx: null, edit: null, sheet: null, renaming: null, open: new Set(), openKey: null, keepGoing: null, staleOk: new Set() }; // edit: session key while editing a finished workout (not persisted)
 
 function save() {
   if (mode !== 'ok') return;
@@ -63,6 +63,8 @@ const exById = id => S.exercises.find(e => e.id === id);
 const byName = (a, b) => a.name.localeCompare(b.name);
 const unit = () => S.settings.unit;
 const fmtDate = ts => new Date(ts).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+const weekdayOf = ts => new Date(ts).toLocaleDateString(undefined, { weekday: 'long' });
+const timeOf = ts => new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 const fmtTime = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -149,6 +151,12 @@ function viewToday() {
   }
   if (!ui.at || ui.at.meso !== m.id) ui.at = { meso: m.id, ...m.pos };
   const { w, d } = ui.at;
+  // Forgotten Finish (F12): an open workout whose last set is over 6 h old comes first.
+  const stale = staleSession(m, Date.now());
+  const staleBanner = stale && ui.keepGoing !== `${m.id}:${stale.key}:${stale.t}`
+    ? `<div class="banner stale" role="alert"><div>⚠ ${esc(weekdayOf(stale.t))}'s workout is still open · Last set ${esc(timeOf(stale.t))}</div>
+      <div class="row"><button class="btn sm primary" data-act="staleFinish" data-w="${stale.w}" data-d="${stale.d}">Finish it</button>
+      <button class="btn sm" data-act="staleKeep">Keep going</button></div></div>` : '';
   const day = m.days[d];
   const tw = totalWeeks(m);
   const deload = isDeload(m, w);
@@ -162,7 +170,7 @@ function viewToday() {
   // Workout ⋯ (skip / discard / finish): an unfinished, unskipped workout only.
   const wkMore = s && !s.done && !s.skipped
     ? `<button class="icon more wkmore" data-act="wkMenu" aria-label="More for ${esc(day.name)}">⋯</button>` : '';
-  let h = `<header class="top">${wkMore}<div class="eyebrow">${esc(m.name)}</div><h1>${esc(day.name)}</h1>
+  let h = `${staleBanner}<header class="top">${wkMore}<div class="eyebrow">${esc(m.name)}</div><h1>${esc(day.name)}</h1>
     <div class="meta"><button class="wkbtn" data-act="weekSheet" aria-haspopup="dialog">Week ${w + 1} of ${tw}${day.weekday != null ? ` · ${WEEKDAYS[day.weekday].slice(0, 3)}` : ''} <span aria-hidden="true">▾</span></button>${deload ? ' · ' + effort : effort}</div>
     ${day.notes ? `<p class="hint">${esc(day.notes)}</p>` : ''}</header>`;
 
@@ -248,7 +256,6 @@ function viewToday() {
     h += '</div>';
   });
 
-  if (!s.done) h += `<button class="btn primary block" data-act="finish">Finish workout</button>`;
   return h;
 }
 
@@ -481,7 +488,7 @@ function scrollToCurrent(before, after, ticked) {
   el.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
 }
 // The lowest visible y of the page: the top of whatever is fixed at the bottom (tabs, bars).
-const viewBottom = () => Math.min(innerHeight, ...['#tabs', '#rest'].map(sel => $(sel)).filter(e => e && !e.hidden).map(e => e.getBoundingClientRect().top));
+const viewBottom = () => Math.min(innerHeight, ...['#tabs', '#rest', '#nextbar'].map(sel => $(sel)).filter(e => e && !e.hidden).map(e => e.getBoundingClientRect().top));
 
 /* ---------- bottom sheet ---------- */
 // One sheet at a time, rendered from ui.sheet = {kind}. Built from the current data on every render.
@@ -531,6 +538,35 @@ function sheetCard() {
   };
 }
 
+// Ticking into a workout whose last set is over 6 h old asks first (so a new workout isn't merged into it).
+function sheetStale() {
+  const m = activeMeso(), { w, d } = ui.at, s = session(m, w, d);
+  if (ui.sheet.key !== sessKey(m, w, d) || !s) return null;
+  const t = lastTick(s);
+  return {
+    title: `${esc(weekdayOf(t))}'s workout is still open`,
+    body: `<p class="hint">Last set ${esc(timeOf(t))}. Finish it, or keep logging into it?</p>
+      <button class="btn block primary" data-act="staleFinish" data-w="${w}" data-d="${d}">Finish it</button>
+      <button class="btn block" data-act="staleGo">Keep going</button>`,
+    focus: '[data-act=staleFinish]',
+  };
+}
+
+// Sticky bar above the tabs (2.7): "Next: <exercise> · set n" and Finish, on a stored, open workout.
+// The rest bar takes the same place while it runs (CSS hides this one then).
+function renderBar() {
+  const el = $('#nextbar');
+  const m = ui.tab === 'today' && mode !== 'recovery' && activeMeso();
+  const s = m && ui.at && m.log[`${ui.at.w}-${ui.at.d}`];
+  el.hidden = !s || s.done || s.skipped;
+  if (el.hidden) { el.innerHTML = ''; return; }
+  const n = nextSet(s);
+  const name = n && exById(s.slots[n.i].exId)?.name;
+  el.innerHTML = `<button class="nb-next" data-act="nextGo" ${n ? '' : 'disabled'}>${n
+    ? `<span class="muted">Next:</span> <b>${esc(name)}</b> <span class="muted">· set ${n.j + 1}</span>` : '<span class="muted">All sets logged</span>'}</button>
+    <button class="btn sm nb-fin ${allLogged(s) ? 'primary' : ''}" data-act="finish">Finish</button>`;
+}
+
 // Week picker sheet (2.6): the weeks × days grid, plus Next up.
 function sheetWeek() {
   const m = activeMeso(), { w, d } = ui.at;
@@ -572,8 +608,8 @@ function sheetWorkout() {
   const s = session(m, w, d) ?? (m.pos.w === w && m.pos.d === d ? blankSession(m, w, d) : null);
   if (key !== sessKey(m, w, d) || !s || s.done || s.skipped) return null;
   const anyDone = s.slots.some(sl => sl.sets.some(x => x.done));
-  let body = anyDone ? '<button class="sact" data-act="finish">✓ Finish workout…</button>'
-    : '<button class="sact" data-act="wkSkip">⤼ Skip this workout</button>';
+  let body = m.log[`${w}-${d}`] && hasContent(s) ? '<button class="sact" data-act="finish">✓ Finish workout…</button>' : '';
+  if (!anyDone) body += '<button class="sact" data-act="wkSkip">⤼ Skip this workout</button>';
   if (m.log[`${w}-${d}`] && hasContent(s)) {
     const n = loggedSets(s);
     body += confirmDiscard
@@ -684,7 +720,7 @@ function sheetSwapNote() {
   };
 }
 
-const SHEETS = { week: sheetWeek, logNow: sheetLogNow, workout: sheetWorkout, finish: sheetFinish, card: sheetCard, swap: sheetSwap, swapNote: sheetSwapNote, set: sheetSet };
+const SHEETS = { stale: sheetStale, week: sheetWeek, logNow: sheetLogNow, workout: sheetWorkout, finish: sheetFinish, card: sheetCard, swap: sheetSwap, swapNote: sheetSwapNote, set: sheetSet };
 
 // Shell shared by every sheet: title, body, Cancel at the bottom; the backdrop also cancels.
 function renderSheet() {
@@ -719,6 +755,7 @@ function render() {
   $('#main').innerHTML = (readOnly ? `<div class="banner ro">Data was saved by a newer version of Liftbook. Reload to update. Changes won’t be saved.</div>` : '')
     + VIEWS[ui.tab]();
   renderSheet();
+  renderBar();
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === ui.tab));
 }
 
@@ -922,6 +959,34 @@ const A = {
     render();
   },
   start: () => { const { m, w, d } = { m: activeMeso(), ...ui.at }; ui.sheet = null; session(m, w, d, true); save(); render(); },
+  // Bar: open the next set's card and bring it into view.
+  nextGo: () => {
+    const m = activeMeso(), s = m.log[`${ui.at.w}-${ui.at.d}`], n = s && nextSet(s);
+    if (!n) return;
+    openCards(sessKey(m, ui.at.w, ui.at.d)).add(n.i);
+    render();
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    $(`#main .card[data-slot="${n.i}"]`)?.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+  },
+  // Forgotten Finish: open that workout's Finish sheet (its date still comes from its sets) or keep going.
+  staleFinish: el => {
+    ui.at = { meso: S.activeId, w: +el.dataset.w, d: +el.dataset.d };
+    ui.edit = null;
+    ui.sheet = null;
+    cancelToast();
+    A.finish();
+  },
+  staleKeep: () => {
+    const m = activeMeso(), st = staleSession(m, Date.now());
+    if (st) ui.keepGoing = `${m.id}:${st.key}:${st.t}`;
+    render();
+  },
+  staleGo: () => {
+    const { key, i, j } = ui.sheet;
+    ui.staleOk.add(key); // not asked again for this workout while the app is open
+    ui.sheet = null;
+    A.set({ dataset: { i, j } });
+  },
   weekSheet: () => openSheet({ kind: 'week' }, '[data-act=weekSheet]'),
   logNow: () => { const m = activeMeso(); openSheet({ kind: 'logNow', key: sessKey(m, ui.at.w, ui.at.d) }, '[data-act=logNow]'); },
   // Expand/collapse a card (layout only; nothing is written).
@@ -940,6 +1005,9 @@ const A = {
     const i = +el.dataset.i, j = +el.dataset.j;
     const st = s.slots[i].sets[j];
     if (st.done) { toast('Tap the set number to untick'); return; } // a second tap never unticks (F03)
+    const key = sessKey(m, ui.at.w, d);
+    if (isStale(s, Date.now()) && !ui.staleOk.has(key)) { openSheet({ kind: 'stale', key, i, j }); return; }
+    ui.keepGoing = null; // a new tick brings the forgotten-Finish banner back if another workout is still open
     const c = slotCtx(m, ui.at.w, d, s, i);
     const r = acceptSet(st, c.suggest(j), c.ex); // suggestion from the data, the same values the screen shows
     if (r.error) {
