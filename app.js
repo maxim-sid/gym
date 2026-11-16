@@ -262,9 +262,13 @@ function cardRow(sl, i, ex, meta, last) {
   else {
     const target = meta.reps ? `${sl.sets.length}×${repsTxt(meta.reps, isTimed(ex, meta))}` : `${sl.sets.length} sets`;
     const lastTxt = last ? fmtSets(last.sets, ex, unit()) : '';
-    sum = esc(nd ? `${nd}/${sl.sets.length} done` : sl.sets.length ? target : 'not done'); // a finished workout drops unused sets
+    const typed = sl.sets.filter(x => !x.done && !x.skip && (String(x.w).trim() !== '' || String(x.r).trim() !== '')).length;
+    const allSkipped = sl.sets.length > 0 && sl.sets.every(x => x.skip && !x.done);
+    // a finished workout drops unused sets → "not done"
+    sum = esc(allSkipped ? 'skipped' : nd ? `${nd}/${sl.sets.length} done` : sl.sets.length ? target : 'not done');
+    if (typed) sum += ` · ${typed} typed`;
     // Last time only when the row still fits on one line at phone width.
-    if (!nd && lastTxt && (ex?.name || '').length + target.length + lastTxt.length <= 34) sum += ` · ${esc(lastTxt)}`;
+    else if (!nd && !allSkipped && lastTxt && (ex?.name || '').length + target.length + lastTxt.length <= 34) sum += ` · ${esc(lastTxt)}`;
   }
   return `<div class="card crow ${finished ? 'cdone' : ''}" data-slot="${i}"><button class="ctoggle" data-act="cardToggle" data-i="${i}" aria-expanded="false"
     aria-label="${name}${finished ? ', done' : ''}: ${sum}. Show sets"><span class="cname">${finished ? '<span class="okmark" aria-hidden="true">✓</span>' : ''}${name}</span>
@@ -465,11 +469,19 @@ const VIEWS = { today: viewToday, plan: viewPlan, progress: viewProgress, exerci
 // After a tick moves the current card: bring the new one to the top, unless the user scrolled in the last 2 s.
 let lastUserScroll = 0;
 ['touchmove', 'wheel'].forEach(ev => addEventListener(ev, () => { lastUserScroll = Date.now(); }, { passive: true }));
-function scrollToCurrent(before, after) {
-  if (after < 0 || after === before || Date.now() - lastUserScroll < 2000) return;
+// ticked: the slot just ticked in (no scroll if it stays current). No scroll either when the card is already
+// fully on screen (above the bottom bars).
+function scrollToCurrent(before, after, ticked) {
+  if (after < 0 || after === before || after === ticked || Date.now() - lastUserScroll < 2000) return;
+  const el = $(`#main .card[data-slot="${after}"]`);
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  if (r.top >= 0 && r.bottom <= viewBottom()) return;
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  $(`#main .card[data-slot="${after}"]`)?.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+  el.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
 }
+// The lowest visible y of the page: the top of whatever is fixed at the bottom (tabs, bars).
+const viewBottom = () => Math.min(innerHeight, ...['#tabs', '#rest'].map(sel => $(sel)).filter(e => e && !e.hidden).map(e => e.getBoundingClientRect().top));
 
 /* ---------- bottom sheet ---------- */
 // One sheet at a time, rendered from ui.sheet = {kind}. Built from the current data on every render.
@@ -548,7 +560,7 @@ function sheetLogNow() {
   if (ui.sheet.key !== sessKey(m, w, d) || session(m, w, d)) return null;
   return {
     title: `Week ${w + 1} · ${esc(m.days[d].name)} isn't next`,
-    body: `<p class="hint">Set counts may still change based on your feedback in earlier workouts.</p>
+    body: `<p class="hint">Its set counts are fixed now; feedback from earlier workouts won't change them.</p>
       <button class="btn block primary" data-act="start">Log it now</button>`,
     focus: '[data-act=start]',
   };
@@ -843,7 +855,11 @@ const newMeso = fields => ({ id: uid(), ...fields, log: {}, pos: { w: 0, d: 0 },
 
 const A = {
   tab: el => { ui.tab = el.dataset.tab; ui.edit = null; ui.sheet = null; ui.renaming = null; cancelToast(); render(); window.scrollTo(0, 0); },
-  goto: el => { ui.at = { meso: S.activeId, w: +el.dataset.w, d: +el.dataset.d }; ui.edit = null; ui.sheet = null; cancelToast(); render(); },
+  goto: el => {
+    const fromSheet = ui.sheet?.kind === 'week';
+    ui.at = { meso: S.activeId, w: +el.dataset.w, d: +el.dataset.d }; ui.edit = null; ui.sheet = null; cancelToast(); render();
+    if (fromSheet) $('[data-act=weekSheet]')?.focus(); // back on the button that opened the sheet
+  },
   sheetCancel: () => closeSheet(),
   // ⋯ on an exercise card. Hidden on a finished workout unless Edit is on; checked again here.
   cardMenu: el => {
@@ -939,7 +955,7 @@ const A = {
     save();
     if (!s.done) startRest(m.days[d].exercises[i].type, { w: ui.at.w, d, i, j }); // never while editing a finished one
     render();
-    if (!s.done) scrollToCurrent(cur0, currentSlot(s));
+    if (!s.done) scrollToCurrent(cur0, currentSlot(s), i);
   },
   // Set number: a done set can be unticked (confirm). Undone sets get Skip / Warm-up with the set sheet (2.1).
   // ↑ chip: tap writes last+step and the bottom of the range into untouched sets; tap again clears them.
