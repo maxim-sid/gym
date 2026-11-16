@@ -98,3 +98,16 @@ test('discardWorkout: deletes an unfinished session without moving on; never a f
   C.skipWorkout(m, 0, 1, 1);
   assert.deepEqual(C.discardWorkout(m, 0, 1), { error: 'state' });
 });
+
+test('normalize: a session both done and skipped (old code finished it) ends up done only; idempotent', () => {
+  const s = { v: 1, settings: { unit: 'kg', restMain: 180, restAcc: 90 }, exercises: [], mesos: [meso()] };
+  const m = s.mesos[0];
+  m.log['0-0'] = { date: 5, done: true, skipped: true, skippedAt: 3, slots: [{ exId: 'a', sets: [set(60, 8)], fb: {} }] };
+  m.log['0-1'] = { date: null, done: false, skipped: true, skippedAt: 4, slots: [{ exId: 'b', sets: [], fb: {} }] };
+  C.normalize(s);
+  assert.deepEqual(Object.keys(m.log['0-0']).sort(), ['date', 'done', 'slots']);
+  assert.equal(m.log['0-1'].skipped, true);              // a plain skip is untouched
+  const once = JSON.stringify(s);
+  assert.equal(C.normalize(s), false);
+  assert.equal(JSON.stringify(s), once);
+});

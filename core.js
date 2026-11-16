@@ -55,6 +55,8 @@
         fill(m, 'style', 'rp');
         if (!isObj(m.log)) return;
         Object.values(m.log).forEach(ss => {
+          // Finished by code from before 2.5 while marked skipped: done wins.
+          if (isObj(ss) && ss.done && ('skipped' in ss || 'skippedAt' in ss)) { delete ss.skipped; delete ss.skippedAt; changed = true; }
           if (isObj(ss) && Array.isArray(ss.slots)) ss.slots.forEach(sl => { if (isObj(sl)) fill(sl, 'fb', {}); });
         });
       });
