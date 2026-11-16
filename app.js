@@ -335,7 +335,7 @@ function viewBuilder() {
         `<option value="${k}" ${day.weekday === k ? 'selected' : ''}>${n}</option>`).join('')}</select>`;
     day.exercises.forEach((sl, i) => {
       const ex = exById(sl.exId);
-      h += `<div class="bex"><div class="grow"><div>${esc(ex?.name)}</div>
+      h += `<div class="bex"><div class="grow"><div>${esc(ex?.name)}${+sl.rest > 0 ? ` <span class="tag" title="Own rest time">⏱ ${fmtTime(+sl.rest)}</span>` : ''}</div>
         <div class="mini"><input data-bind="reps" data-d="${d}" data-i="${i}" value="${esc(repsTxt(sl.reps))}" placeholder="reps" aria-label="Rep range">
         <button class="chip ${sl.type === 'main' ? 'on' : ''}" data-act="type" data-d="${d}" data-i="${i}">${sl.type === 'main' ? 'Main' : 'Accessory'}</button></div></div>
         <div class="stepper"><button data-act="sets" data-d="${d}" data-i="${i}" data-v="-1" aria-label="Fewer sets">−</button><b>${sl.plan[0]}</b><button data-act="sets" data-d="${d}" data-i="${i}" data-v="1" aria-label="More sets">+</button></div>
@@ -843,7 +843,10 @@ function restoreRest() {
   if (rest) { tickRest(); return; }
   let r = null;
   try { r = JSON.parse(localStorage.getItem(REST_KEY)); } catch (e) { /* none */ }
-  if (!r || !r.at || restState(r, Date.now()).state === 'expired') { try { localStorage.removeItem(REST_KEY); } catch (e) { /* */ } return; }
+  // Only for a workout that still exists and isn't finished (an import or another device may have changed it).
+  const [mid, wd] = String(r?.key ?? '').split(':');
+  const live = S.mesos.find(x => x.id === mid)?.log[wd];
+  if (!r || !r.at || !live || live.done || restState(r, Date.now()).state === 'expired') { try { localStorage.removeItem(REST_KEY); } catch (e) { /* */ } return; }
   rest = r;
   if (restState(r, Date.now()).state === 'over') rest.fired = true; // it went off while we were away: no late beep
   runRest();
@@ -877,7 +880,8 @@ function tickRest() {
   const st = restState(rest, Date.now());
   if (st.state === 'expired') { stopRest(); return; }
   if (st.state === 'over') {
-    if (!rest.fired) { rest.fired = true; restSave(); beep(); navigator.vibrate?.(300); }
+    // Sound only when zero is noticed as it happens (not after a sleep or a reload, when it would come late).
+    if (!rest.fired) { rest.fired = true; restSave(); if (st.secs < 3) { beep(); navigator.vibrate?.(300); } }
     if (st.secs >= 300) keepAwake(false); // 5 min past zero: let the screen sleep
   }
   const el = $('#rest');
@@ -920,17 +924,17 @@ function beep() {
 // and when the app is hidden. Feature-detected; every error is swallowed (the setting just does nothing then).
 let wake = null, wakeBusy = false;
 async function keepAwake(on) {
-  try {
-    if (on && S.settings.keepAwake && 'wakeLock' in navigator && !document.hidden && !wake && !wakeBusy) {
-      wakeBusy = true;
+  if (on && S.settings.keepAwake && 'wakeLock' in navigator && !document.hidden && !wake && !wakeBusy) {
+    wakeBusy = true;
+    try {
       wake = await navigator.wakeLock.request('screen');
       wake.addEventListener?.('release', () => { wake = null; });
-    } else if (!on && wake) {
-      const w = wake;
-      wake = null;
-      await w.release();
-    }
-  } catch (e) { wake = null; } finally { wakeBusy = false; }
+    } catch (e) { wake = null; } finally { wakeBusy = false; } // only this branch owns the busy flag
+  } else if (!on && wake) {
+    const w = wake;
+    wake = null;
+    try { await w.release(); } catch (e) { /* already released */ }
+  }
 }
 const workoutOpen = () => {
   const m = activeMeso(), s = m && ui.at && m.log[`${ui.at.w}-${ui.at.d}`];
