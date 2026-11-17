@@ -49,6 +49,6 @@ test('applying the plan to the fixture renames "Squat (barbell or goblet)" to "S
   assert.equal(after.name, 'Squat');
   assert.equal(S.exercises.length, n);                                    // renamed, not added
   assert.ok(!created.includes('Squat'));
-  assert.ok(created.includes('Bench Press'));                             // new names start fresh
+  assert.ok(created.includes('Tuck Front Lever'));                        // new names start fresh
   assert.equal(S.exercises.filter(e => lc(e.name) === 'squat').length, 1);
 });

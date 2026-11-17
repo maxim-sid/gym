@@ -33,7 +33,7 @@ const MY_PLAN = {
       name: 'Sat: Squat + Bench + Pull', weekday: 6,
       exercises: [
         { name: 'Squat', was: ['Squat (barbell or goblet)'], muscle: 'Quads', sets: 3, reps: [4, 6], type: 'main', notes: 'Week 1: work up to a set of 5 at RPE 8 — that is your working weight' },
-        { name: 'Bench Press', muscle: 'Chest', sets: 4, reps: [4, 6], type: 'main', notes: 'Start around 80 kg × 5' },
+        { name: 'Barbell Bench Press', muscle: 'Chest', sets: 4, reps: [4, 6], type: 'main', notes: 'Start around 80 kg × 5' },
         { name: 'Weighted Pull-up', bw: true, muscle: 'Back', sets: 4, reps: [3, 5], type: 'main', notes: 'Around +15 kg; raise the load once you hit 5 on all sets' },
         { name: 'Cable Cupping (table position)', muscle: 'Forearms', sets: 4, reps: [6, 8], type: 'accessory', notes: 'Low pulley, elbow on a bench pad at 90°, towel/strap through the handle; curl wrist + fingers toward you. Heavy.' },
         { name: 'Cable Pronation (table position)', muscle: 'Forearms', sets: 3, reps: [6, 10], type: 'accessory', notes: 'Elbow on pad, rotate the forearm against the cable (thumb toward you)' },
@@ -78,7 +78,7 @@ const MY_PLAN = {
     {
       name: 'Fri: Skills (home)', weekday: 5, notes: 'No pulling — heavy Saturday tomorrow.',
       exercises: [
-        { name: 'Wall Handstand', bw: true, timed: true, muscle: 'Shoulders', sets: 5, reps: [20, 40], type: 'main' },
+        { name: 'Wall Handstand', bw: true, timed: true, muscle: 'Shoulders', sets: 5, reps: [20, 40], type: 'accessory' },
         { name: 'L-sit / tuck sit (chairs or floor)', bw: true, timed: true, muscle: 'Abs', sets: 4, reps: [10, 15], type: 'accessory' },
         { name: 'Compression Lift', bw: true, muscle: 'Abs', sets: 3, reps: [8, 8], type: 'accessory', notes: 'Seated, legs straight, lift both heels' },
       ],
