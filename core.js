@@ -773,31 +773,28 @@
   // e1rm: only sets with a known load (w > 0) and 1–12 reps; sessions without one are left out, not plotted as 0.
   // e1rmBw (3.1, bodyweight exercise while Settings has a bodyweight): e1RM of bodyweight + added load, using the
   // bodyweight saved with each workout (s.bw) or, for older ones, the current setting (then fallback: true).
+  // Which metric an exercise is charted (and its records judged) on. Cheaper than chartPoints: no points.
+  function chartMetric(S, ex, perf = perfFor(S, ex.id)) {
+    if (ex.timed) return 'hold';
+    if (ex.bw && currentBody(S)) return 'e1rmBw'; // while any bodyweight is known (Body log or the Settings value)
+    if (!perf.some(p => p.sets.some(x => +x.w > 0))) return 'reps';
+    return ex.bw ? 'load' : 'e1rm';
+  }
+  // A workout's bodyweight, the one lookup for charts, records and Finish: saved with it (s.bw), else the Body log
+  // on its day, else the current value. → number | null
+  const bwFor = (S, s) => (+s?.bw > 0 ? +s.bw : bodyFor(S, s?.date ?? Date.now()));
+
   function chartPoints(S, ex) {
     const perf = perfFor(S, ex.id);
-    const maxOf = (sets, f) => Math.max(...sets.map(f));
-    const per = f => perf.map(p => ({ x: p.date, y: f(p.sets) }));
-    if (ex.timed) return { metric: 'hold', points: per(sets => maxOf(sets, x => +x.r)) };
-    const bwNow = currentBody(S);
-    if (ex.bw && bwNow) { // while any bodyweight is known (Body log or the Settings value)
-      let fallback = false;
-      const points = perf.map(p => {
-        const logged = p.bw ?? bodyAt(S, p.date);              // saved with the workout, else the log on that day
-        const body = logged ?? bwNow;
-        if (!logged) fallback = true;
-        const q = p.sets.filter(x => +x.r >= 1 && +x.r <= 12);
-        return q.length ? { x: p.date, y: maxOf(q, x => e1rm(body + Math.max(0, +x.w || 0), +x.r)) } : null;
-      }).filter(Boolean);
-      return { metric: 'e1rmBw', points, bw: bwNow, fallback };
-    }
-    const anyLoad = perf.some(p => p.sets.some(x => +x.w > 0));
-    if (!anyLoad) return { metric: 'reps', points: per(sets => maxOf(sets, x => +x.r)) };
-    if (ex.bw) return { metric: 'load', points: per(sets => Math.max(0, maxOf(sets, x => +x.w || 0))) };
+    const metric = chartMetric(S, ex, perf);
+    // Each point is the workout's best set on that metric (setValue), the same values the 🏆 compares.
     const points = perf.map(p => {
-      const q = p.sets.filter(x => +x.w > 0 && +x.r >= 1 && +x.r <= 12);
-      return q.length ? { x: p.date, y: maxOf(q, x => e1rm(+x.w, +x.r)) } : null;
+      const vals = p.sets.map(x => setValue(metric, x, bwFor(S, p))).filter(v => v != null);
+      return vals.length ? { x: p.date, y: Math.max(...vals) } : null;
     }).filter(Boolean);
-    return { metric: 'e1rm', points };
+    if (metric !== 'e1rmBw') return { metric, points };
+    const fallback = perf.some(p => !(+p.bw > 0) && bodyAt(S, p.date) == null);
+    return { metric, points, bw: currentBody(S), fallback };
   }
 
   /* ---------- personal best (3.2) ---------- */
@@ -806,7 +803,7 @@
     const w = +x.w || 0, r = +x.r;
     if (!(r > 0)) return null;
     if (metric === 'hold' || metric === 'reps') return r;
-    if (metric === 'load') return w;
+    if (metric === 'load') return Math.max(0, w);
     if (r > 12) return null;
     if (metric === 'e1rmBw') return bw ? e1rm(bw + Math.max(0, w), r) : null;
     return w > 0 ? e1rm(w, r) : null;
@@ -818,7 +815,7 @@
     let best = null;
     for (const { s: ss } of allSessions(S)) {
       if (ss === s || !(ss.date < before)) continue;
-      const bw = +ss.bw > 0 ? +ss.bw : bodyFor(S, ss.date);
+      const bw = bwFor(S, ss);
       ss.slots.forEach(sl => {
         if (sl.exId !== exId) return;
         doneSets(sl).forEach(x => { const v = setValue(metric, x, bw); if (v != null && (best == null || v > best)) best = v; });
@@ -829,10 +826,10 @@
   // Today's record set for exercise ex in session s: the best working set of the day (all its slots) when it beats
   // every earlier workout. → {i, j, value, metric} | null
   function prSet(S, ex, s) {
-    const metric = chartPoints(S, ex).metric;
+    const metric = chartMetric(S, ex);
     const best = bestBefore(S, ex.id, metric, s);
     if (best == null) return null;
-    const bw = +s.bw > 0 ? +s.bw : bodyFor(S, Date.now());
+    const bw = bwFor(S, s);
     let top = null;
     s.slots.forEach((sl, i) => {
       if (sl.exId !== ex.id) return;
@@ -1138,6 +1135,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, workSets, workIndex, setLabel, shiftIdx, addWarmup, removeWarmup, undeleteSet, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, setValue, bestBefore, prSet, countedSets, lastPerf, lastNoteFor, slotHasContent, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, setNote, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, addBody, removeBody, bodyAt, bodyFor, currentBody, bodyStats, bodyAvgLine, dayOf, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, setValue, bestBefore, prSet, chartMetric, bwFor, countedSets, lastPerf, lastNoteFor, slotHasContent, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, setNote, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, addBody, removeBody, bodyAt, bodyFor, currentBody, bodyStats, bodyAvgLine, dayOf, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

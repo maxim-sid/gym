@@ -267,8 +267,9 @@ function viewToday() {
       ${meta.notes && !from ? `<div class="note">${esc(meta.notes)}</div>` : ''}
       ${hitTop ? `<div class="up"><span>↑ Top of the range on every set last time: ${weighted ? 'add weight' : 'add weight or reps'}</span>${chip}</div>` : ''}
       <div class="setgrid"><span></span><span class="h">${ex?.bw ? '+' : ''}${unit()}</span><span class="h">${isTimed(ex, meta) ? 'Sec' : 'Reps'}</span><span></span>`;
-    // 🏆 on today's record set (3.2): computed now, never stored; not on a finished workout (or in Edit mode).
-    const best = !s.done && ex ? prSet(S, ex, s) : null;
+    // 🏆 on the record set (3.2): computed now, never stored. A finished workout shows the record it set at the time
+    // (compared with what came before it); not in Edit mode.
+    const best = ex && (!s.done || ro) ? prSet(S, ex, s) : null;
     sl.sets.forEach((st, j) => {
       const { w: pw, r: pr } = suggest(j);
       const isPr = best?.i === i && best.j === j;
@@ -276,7 +277,7 @@ function viewToday() {
       const sk = !st.done && st.skip;
       const roA = ro || sk ? 'readonly tabindex="-1"' : '';
       const lab = setLabel(sl, j), nm = setName(sl, j);
-      h += (ro ? `<span class="n ${dc}">${st.done ? '✓' : sk ? '–' : ''}${lab}</span>`
+      h += (ro ? `<span class="n ${dc}" ${isPr ? 'aria-label="personal best at the time"' : ''}>${isPr ? '🏆' : st.done ? '✓' : sk ? '–' : ''}${lab}</span>`
         : sk ? `<button class="n sk" data-act="unskipSet" data-i="${i}" data-j="${j}" aria-label="${nm} skipped. Unskip">↺</button>`
         : `<button class="n ${dc}" data-act="setNum" data-i="${i}" data-j="${j}" aria-label="${nm}${isPr ? ', personal best' : ''} options">${isPr ? '🏆' : st.done ? '✓' : ''}${lab}</button>`)
         + `<input class="${dc}" inputmode="decimal" data-i="${i}" data-j="${j}" data-f="w" value="${esc(st.w)}" placeholder="${ro || sk ? '' : pw}" ${roA} enterkeyhint="next" aria-label="${nm} weight">
@@ -456,7 +457,7 @@ function viewProgress() {
     load: `Best added weight (${unit()})`,
     reps: 'Best reps',
     hold: 'Longest hold (seconds)',
-  }[metric] + (ex.bw && !ex.timed && metric !== 'e1rmBw' ? ' · <span class="muted">set your bodyweight in Settings for e1RM</span>' : '');
+  }[metric] + (ex.bw && !ex.timed && metric !== 'e1rmBw' ? ' · <span class="muted">log your bodyweight in the Body tab for e1RM</span>' : '');
   h += `<div class="card"><select data-bind="progEx">${logged.map(e => `<option value="${e.id}" ${e.id === ui.progEx ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>
     <div class="sub">${label}</div>${chart(points)}</div>
     <div class="card list">${perf.slice().reverse().slice(0, 12).map(p => `<div class="line"><span class="muted">${fmtDate(p.date)}</span><span>${fmtSets(p.sets, ex, unit())}</span></div>`).join('')}</div>`;
@@ -1581,8 +1582,8 @@ const A = {
       }
     }
     const changes = finishSession(m, w, d, s, Date.now()).changes.map(c => `${exById(c.exId)?.name} ${c.from}→${c.to}`);
-    // This workout's bodyweight (3.1/3.8): the Body log on its day, else the old Settings value.
-    const bw = bodyAt(S, s.date) ?? (+S.settings.bodyweight > 0 ? +S.settings.bodyweight : null);
+    // This workout's bodyweight (3.1/3.8): the Body log on its day, else the current value (bwFor).
+    const bw = bwFor(S, s);
     if (bw) s.bw = bw;
     ui.at = null;
     stopRest();

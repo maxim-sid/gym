@@ -49,3 +49,26 @@ test('a finished workout compares only with what came before it', () => {
   assert.equal(C.prSet(st, ex, s1).value, C.e1rm(120, 5));                  // it beat the 100 before it
   assert.equal(C.prSet(st, ex, st.mesos[0].log['2-0']), null);
 });
+
+test('chart points and records use the same metric and bodyweight (bwFor): s.bw, then the Body log, then current', () => {
+  const ex = { id: 'd', bw: true };
+  const day = d => new Date(2026, 9, d, 10).getTime();
+  const sess = (date, sets, bw) => ({ date, done: true, ...(bw ? { bw } : {}), slots: [{ exId: 'd', sets, fb: {} }] });
+  const st = { settings: {}, body: [{ d: '2026-10-05', w: '90' }], exercises: [ex], mesos: [{ id: 'm', weeks: 9, deload: false, days: [], log: {
+    '0-0': sess(day(1), [set('', 10)]),            // before the log: current value (90 — the only entry)
+    '1-0': sess(day(6), [set(5, 8)]),              // log: 90
+    '2-0': sess(day(9), [set('', 12)], 85),        // saved: 85
+  } }] };
+  assert.equal(C.chartMetric(st, ex), 'e1rmBw');
+  const { points } = C.chartPoints(st, ex);
+  const logs = Object.values(st.mesos[0].log);
+  logs.forEach((s, k) => {
+    const v = Math.max(...s.slots[0].sets.map(x => C.setValue('e1rmBw', x, C.bwFor(st, s))));
+    assert.equal(points[k].y, v);
+  });
+  assert.equal(C.bwFor(st, logs[0]), 90);
+  assert.equal(C.bwFor(st, logs[2]), 85);
+  // The record compares the same numbers: the best before day 9 is the top chart point of days 1 and 6.
+  assert.equal(C.bestBefore(st, 'd', 'e1rmBw', logs[2]), Math.max(points[0].y, points[1].y));
+  assert.equal(C.prSet(st, ex, logs[2]) === null, points[2].y <= Math.max(points[0].y, points[1].y));
+});
