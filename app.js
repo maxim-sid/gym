@@ -445,8 +445,7 @@ function viewProgress() {
   const cp = chartPoints(S, ex), { metric, points } = cp;
   const label = {
     e1rm: `Estimated 1-rep max (${unit()}) · sets of 1–12 reps with a weight`,
-    e1rmBw: `Estimated 1-rep max (${unit()}) · incl. bodyweight${cp.bw ? ` ${cp.bw} ${unit()}` : ''}${
-      cp.fallback ? ' (older workouts use today’s)' : cp.bw ? '' : ' saved with each workout'}`,
+    e1rmBw: `Estimated 1-rep max (${unit()}) · incl. your bodyweight at each workout${cp.fallback ? ` (older workouts use today’s: ${cp.bw} ${unit()})` : ''}`,
     load: `Best added weight (${unit()})`,
     reps: 'Best reps',
     hold: 'Longest hold (seconds)',

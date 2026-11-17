@@ -177,8 +177,7 @@ test('chartPoints bodyweight with a bodyweight: e1RM of bodyweight + added load;
   r = C.chartPoints(S, ex);
   assert.equal(r.fallback, false);
   assert.equal(Math.round(r.points[0].y), Math.round(C.e1rm(75, 10)));
-  delete S.settings.bodyweight;                                           // setting cleared: saved values still count
-  assert.equal(C.chartPoints(S, ex).metric, 'e1rmBw');
-  Object.values(ms.log).forEach(s => { delete s.bw; });
-  assert.equal(C.chartPoints(S, ex).metric, 'load');                      // no bodyweight anywhere: as before
+  delete S.settings.bodyweight;                                           // setting cleared: back to added load,
+  assert.equal(C.chartPoints(S, ex).metric, 'load');                      // even with saved values
+  assert.equal(ms.log['0-0'].bw, 75);                                     // (which stay)
 });

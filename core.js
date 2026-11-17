@@ -708,7 +708,7 @@
 
   // Progress chart for one exercise. → {metric: 'e1rm'|'e1rmBw'|'load'|'reps'|'hold', points: [{x: date, y}]}
   // e1rm: only sets with a known load (w > 0) and 1–12 reps; sessions without one are left out, not plotted as 0.
-  // e1rmBw (3.1, bodyweight exercise once a bodyweight is known): e1RM of bodyweight + added load, using the
+  // e1rmBw (3.1, bodyweight exercise while Settings has a bodyweight): e1RM of bodyweight + added load, using the
   // bodyweight saved with each workout (s.bw) or, for older ones, the current setting (then fallback: true).
   function chartPoints(S, ex) {
     const perf = perfFor(S, ex.id);
@@ -716,7 +716,7 @@
     const per = f => perf.map(p => ({ x: p.date, y: f(p.sets) }));
     if (ex.timed) return { metric: 'hold', points: per(sets => maxOf(sets, x => +x.r)) };
     const bwNow = +S.settings?.bodyweight > 0 ? +S.settings.bodyweight : null;
-    if (ex.bw && (bwNow || perf.some(p => p.bw))) {
+    if (ex.bw && bwNow) { // only while a bodyweight is set; saved s.bw values are used, never required
       let fallback = false;
       const points = perf.map(p => {
         const body = p.bw ?? bwNow;
