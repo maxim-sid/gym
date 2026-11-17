@@ -23,6 +23,64 @@
   const uid = () => Math.random().toString(36).slice(2, 10);
   const isObj = x => x !== null && typeof x === 'object' && !Array.isArray(x);
 
+  /* ---------- body log (3.8) ---------- */
+  const isDay = d => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d));
+  // "82,5" → "82.5"; a weight is a number in (0, 1000). → string | null
+  const bodyNum = v => { const t = String(v ?? '').trim().replace(',', '.'); return t !== '' && +t > 0 && +t < 1000 ? String(+t) : null; };
+  function cleanBody(arr) {
+    const by = {};
+    arr.forEach(e => { if (e && isDay(e.d) && bodyNum(e.w)) by[e.d] = { d: e.d, w: bodyNum(e.w) }; }); // later wins
+    return Object.values(by).sort((a, b) => (a.d < b.d ? -1 : 1));
+  }
+  // The local calendar day of a timestamp (or a 'YYYY-MM-DD' as is).
+  const dayOf = t => (isDay(t) ? t : (() => { const x = new Date(t); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; })());
+  const dayShift = (d, n) => new Date(Date.parse(d) + n * 864e5).toISOString().slice(0, 10); // UTC math: no DST jumps
+  // Add or replace the entry for date d. → {ok, prev (the replaced entry or null)} | {error: 'date'|'weight'}
+  function addBody(S, d, w) {
+    if (!isDay(d)) return { error: 'date' };
+    const v = bodyNum(w);
+    if (!v) return { error: 'weight' };
+    const list = Array.isArray(S.body) ? S.body : (S.body = []);
+    const k = list.findIndex(e => e.d === d);
+    const prev = k >= 0 ? list.splice(k, 1)[0] : null;
+    list.push({ d, w: v });
+    list.sort((a, b) => (a.d < b.d ? -1 : 1));
+    return { ok: true, prev };
+  }
+  // Remove the entry for date d. → the entry | null
+  function removeBody(S, d) {
+    const k = (S.body || []).findIndex(e => e.d === d);
+    if (k < 0) return null;
+    const e = S.body.splice(k, 1)[0];
+    if (!S.body.length) delete S.body;
+    return e;
+  }
+  // Bodyweight on a day (date string or timestamp): the latest entry on or before it. → number | null
+  function bodyAt(S, t) {
+    const d = dayOf(t);
+    let w = null;
+    for (const e of S.body || []) { if (e.d <= d) w = +e.w; else break; }
+    return w;
+  }
+  // Current bodyweight: the latest Body entry, else the old Settings value (3.1), else null.
+  const currentBody = S => (S.body?.length ? +S.body[S.body.length - 1].w : +S.settings?.bodyweight > 0 ? +S.settings.bodyweight : null);
+  // For a workout on day t: its saved value is preferred by callers; then the log on that day; then the current one.
+  const bodyFor = (S, t) => bodyAt(S, t) ?? currentBody(S);
+  // Stats for the Body tab. avg of the 7 days ending today, and the same 4 weeks earlier; change = now − then.
+  function bodyStats(S, today) {
+    const list = S.body || [];
+    const avg = (from, to) => { const xs = list.filter(e => e.d >= from && e.d <= to).map(e => +e.w); return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; };
+    const r1 = x => (x == null ? null : Math.round(x * 10) / 10);
+    const avg7 = avg(dayShift(today, -6), today);
+    const then = avg(dayShift(today, -34), dayShift(today, -28));
+    return { latest: list.length ? list[list.length - 1] : null, avg7: r1(avg7), change: avg7 != null && then != null ? r1(avg7 - then) : null };
+  }
+  // 7-day average at each entry (the entries in the 7 days up to it), for the chart's second line.
+  const bodyAvgLine = S => (S.body || []).map(e => {
+    const xs = S.body.filter(x => x.d <= e.d && x.d >= dayShift(e.d, -6)).map(x => +x.w);
+    return { x: Date.parse(e.d), y: xs.reduce((a, b) => a + b, 0) / xs.length };
+  });
+
   function freshState() {
     return {
       v: 1,
@@ -48,6 +106,11 @@
     }
     fill(s, 'exercises', []);
     fill(s, 'mesos', []);
+    // Body log (3.8): optional. Malformed entries are dropped (never the whole file); one per date, sorted.
+    if ('body' in s) {
+      const clean = Array.isArray(s.body) ? cleanBody(s.body) : [];
+      if (JSON.stringify(clean) !== JSON.stringify(s.body)) { changed = true; if (clean.length) s.body = clean; else delete s.body; }
+    }
     if (Array.isArray(s.mesos)) {
       s.mesos.forEach(m => {
         if (!isObj(m)) return;
@@ -715,13 +778,13 @@
     const maxOf = (sets, f) => Math.max(...sets.map(f));
     const per = f => perf.map(p => ({ x: p.date, y: f(p.sets) }));
     if (ex.timed) return { metric: 'hold', points: per(sets => maxOf(sets, x => +x.r)) };
-    const bwNow = +S.settings?.bodyweight > 0 ? +S.settings.bodyweight : null;
-    if (ex.bw && bwNow) { // only while a bodyweight is set; saved s.bw values are used, never required
+    const bwNow = currentBody(S);
+    if (ex.bw && bwNow) { // while any bodyweight is known (Body log or the Settings value)
       let fallback = false;
       const points = perf.map(p => {
-        const body = p.bw ?? bwNow;
-        if (!body) return null;
-        if (!p.bw) fallback = true;
+        const logged = p.bw ?? bodyAt(S, p.date);              // saved with the workout, else the log on that day
+        const body = logged ?? bwNow;
+        if (!logged) fallback = true;
         const q = p.sets.filter(x => +x.r >= 1 && +x.r <= 12);
         return q.length ? { x: p.date, y: maxOf(q, x => e1rm(body + Math.max(0, +x.w || 0), +x.r)) } : null;
       }).filter(Boolean);
@@ -748,7 +811,6 @@
     if (metric === 'e1rmBw') return bw ? e1rm(bw + Math.max(0, w), r) : null;
     return w > 0 ? e1rm(w, r) : null;
   }
-  const bodyNow = S => (+S.settings?.bodyweight > 0 ? +S.settings.bodyweight : null);
   // The best value on that metric in finished workouts before session s (not s itself). null = no earlier value,
   // e.g. the first time: then there's no badge.
   function bestBefore(S, exId, metric, s) {
@@ -756,7 +818,7 @@
     let best = null;
     for (const { s: ss } of allSessions(S)) {
       if (ss === s || !(ss.date < before)) continue;
-      const bw = +ss.bw > 0 ? +ss.bw : bodyNow(S);
+      const bw = +ss.bw > 0 ? +ss.bw : bodyFor(S, ss.date);
       ss.slots.forEach(sl => {
         if (sl.exId !== exId) return;
         doneSets(sl).forEach(x => { const v = setValue(metric, x, bw); if (v != null && (best == null || v > best)) best = v; });
@@ -770,7 +832,7 @@
     const metric = chartPoints(S, ex).metric;
     const best = bestBefore(S, ex.id, metric, s);
     if (best == null) return null;
-    const bw = +s.bw > 0 ? +s.bw : bodyNow(S);
+    const bw = +s.bw > 0 ? +s.bw : bodyFor(S, Date.now());
     let top = null;
     s.slots.forEach((sl, i) => {
       if (sl.exId !== ex.id) return;
@@ -1076,6 +1138,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, workSets, workIndex, setLabel, shiftIdx, addWarmup, removeWarmup, undeleteSet, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, setValue, bestBefore, prSet, countedSets, lastPerf, lastNoteFor, slotHasContent, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, setNote, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, setValue, bestBefore, prSet, countedSets, lastPerf, lastNoteFor, slotHasContent, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, setNote, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, addBody, removeBody, bodyAt, bodyFor, currentBody, bodyStats, bodyAvgLine, dayOf, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

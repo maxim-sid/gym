@@ -183,7 +183,13 @@ ol.hint { padding-left: 20px; }
 .banner.stale { background: rgba(255,176,32,.12); color: var(--warn); }
 .banner.stale .row { margin-top: 8px; }
 .line.tog { min-height: 52px; gap: 12px; }
-.bwin { width: 96px; flex: none; text-align: right; }
+.bform input[type=date] { flex: 1 1 auto; min-width: 0; }
+.bform input[data-body=w] { width: 88px; flex: none; text-align: right; }
+.bform .btn { flex: none; }
+.bline { padding-right: 0; }
+.bentry { flex: 1; display: flex; justify-content: space-between; align-items: center; min-height: 44px; gap: 10px; padding: 0 8px 0 0; text-align: left; }
+.stat small { font-size: 12px; font-weight: 600; color: var(--muted); }
+.chart polyline.avg { stroke: var(--text); stroke-width: 1.5; stroke-dasharray: 4 4; opacity: .55; }
 .line.tog input { width: 24px; height: 24px; min-height: 0; flex: none; accent-color: var(--acc); }
 .rrow { gap: 8px; align-items: center; }
 .rrow .rv { min-width: 48px; font-variant-numeric: tabular-nums; }

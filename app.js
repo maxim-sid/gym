@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof prSet !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof bodyStats !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -417,10 +417,11 @@ function viewBuilder() {
 }
 
 
-function chart(points) {
-  if (points.length < 2) return '<p class="hint">Log this exercise in at least two workouts to see a trend.</p>';
+// avg: an optional second, dashed line over the same points (y only). empty: the hint for fewer than 2 points.
+function chart(points, { avg = null, empty = 'Log this exercise in at least two workouts to see a trend.' } = {}) {
+  if (points.length < 2) return `<p class="hint">${empty}</p>`;
   const W = 320, H = 150, P = 26;
-  const ys = points.map(p => p.y);
+  const ys = points.map(p => p.y).concat(avg ? avg.map(p => p.y) : []);
   let lo = Math.min(...ys), hi = Math.max(...ys);
   if (hi === lo) { hi += 1; lo -= 1; }
   const X = i => P + ((W - 2 * P) * i) / (points.length - 1);
@@ -429,7 +430,7 @@ function chart(points) {
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Trend chart">
     <line class="grid" x1="${P}" x2="${W - P}" y1="${Y(hi)}" y2="${Y(hi)}"/><line class="grid" x1="${P}" x2="${W - P}" y1="${Y(lo)}" y2="${Y(lo)}"/>
     <text x="0" y="${Y(hi) + 4}">${Math.round(hi)}</text><text x="0" y="${Y(lo) + 4}">${Math.round(lo)}</text>
-    <polyline points="${pts}"/>${points.map((p, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3.5"/>`).join('')}
+    <polyline points="${pts}"/>${avg ? `<polyline class="avg" points="${avg.map((p, i) => `${X(i).toFixed(1)},${Y(p.y).toFixed(1)}`).join(' ')}"/>` : ''}${points.map((p, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3.5"/>`).join('')}
     <text x="${P}" y="${H - 6}">${fmtDate(points[0].x)}</text><text x="${W - P}" y="${H - 6}" text-anchor="end">${fmtDate(points[points.length - 1].x)}</text></svg>`;
 }
 
@@ -505,9 +506,8 @@ function viewSettings() {
           `<option value="${s}" ${S.settings[k] === s ? 'selected' : ''}>${fmtTime(s)}</option>`).join('')}</select></div>`).join('')}
     </div>
     <p class="hint" style="margin:-4px 2px 12px">Changing units only changes the label. Numbers you already logged stay the same.</p>
-    <div class="card list"><div class="sub">Body</div>
-      <label class="line"><span>Bodyweight (${unit()})</span><input class="bwin" data-bind="bodyweight" inputmode="decimal" value="${esc(S.settings.bodyweight ?? '')}" placeholder="off" aria-label="Bodyweight in ${unit()}"></label>
-      <p class="hint">Optional. Saved with each workout you finish; bodyweight exercises then chart e1RM including it.</p></div>
+    <div class="card list"><div class="line"><span>Bodyweight: ${currentBody(S) ? `${currentBody(S)} ${unit()}` : 'not set'}</span>
+      <button class="btn sm" data-act="tab" data-tab="body">Body tab</button></div></div>
     <div class="card list"><div class="sub">Rest timer</div>
       <label class="line tog"><span>Beep even in silent mode (may pause your music)</span><input type="checkbox" data-bind="beepLoud" ${S.settings.beepLoud ? 'checked' : ''}></label>
       <label class="line tog"><span>Keep screen on during workouts</span><input type="checkbox" data-bind="keepAwake" ${S.settings.keepAwake ? 'checked' : ''}></label>
@@ -532,7 +532,34 @@ function viewRecovery() {
     <button class="btn danger block" data-act="startFresh">Start fresh</button></section>`;
 }
 
-const VIEWS = { today: viewToday, plan: viewPlan, progress: viewProgress, exercises: viewExercises, settings: viewSettings };
+// Body tab (3.8): log bodyweight by day; stats, a chart with its 7-day average, and the entries.
+const dayLabel = d => fmtDate(Date.parse(`${d}T12:00`)); // a 'YYYY-MM-DD' shown as a local day
+function viewBody() {
+  const today = dayOf(Date.now()), u = unit();
+  const f = ui.bodyForm || { d: today, w: '' };
+  const list = S.body || [];
+  const st = bodyStats(S, today);
+  const val = v => (v == null ? '—' : `${v}<small> ${u}</small>`);
+  let h = `<header class="top"><h1>Body</h1></header>
+    <div class="card"><div class="row nowrap bform">
+      <input type="date" data-body="d" value="${esc(f.d)}" max="${today}" aria-label="Date">
+      <input data-body="w" inputmode="decimal" value="${esc(f.w)}" placeholder="${list.length ? esc(list[list.length - 1].w) : u}" aria-label="Bodyweight in ${u}" enterkeyhint="done">
+      <button class="btn primary" data-act="bodySave">Save</button></div>
+      ${f.editing ? `<p class="hint">Editing ${dayLabel(f.d)}: Save replaces it.</p>` : ''}</div>
+    <div class="stats"><div class="stat"><b>${st.latest ? val(st.latest.w) : '—'}</b><span>Latest</span></div>
+      <div class="stat"><b>${val(st.avg7)}</b><span>7-day average</span></div>
+      <div class="stat"><b>${st.change == null ? '—' : `${st.change > 0 ? '+' : ''}${st.change}<small> ${u}</small>`}</b><span>vs 4 weeks ago</span></div></div>`;
+  const pts = list.map(e => ({ x: Date.parse(`${e.d}T12:00`), y: +e.w }));
+  h += `<div class="card"><div class="sub">Bodyweight (${u}) · dashed: 7-day average</div>${chart(pts, { avg: bodyAvgLine(S), empty: 'Log your weight on two days to see a trend.' })}</div>`;
+  if (list.length) {
+    h += `<div class="card list">${list.slice().reverse().map(e => `<div class="line bline">
+      <button class="bentry" data-act="bodyEdit" data-d="${e.d}" aria-label="Edit ${dayLabel(e.d)}, ${e.w} ${u}"><span class="muted">${dayLabel(e.d)}</span><b>${e.w} ${u}</b></button>
+      <button class="icon del" data-act="bodyDel" data-d="${e.d}" aria-label="Delete ${dayLabel(e.d)}">✕</button></div>`).join('')}</div>`;
+  }
+  return h;
+}
+
+const VIEWS = { today: viewToday, plan: viewPlan, progress: viewProgress, body: viewBody, exercises: viewExercises, settings: viewSettings };
 
 // After a tick moves the current card: bring the new one to the top, unless the user scrolled in the last 2 s.
 let lastUserScroll = 0;
@@ -1322,6 +1349,31 @@ const A = {
     ui.sheet = null;
     A.set({ dataset: { i, j } });
   },
+  bodySave: () => {
+    const d = $('[data-body=d]')?.value, w = $('[data-body=w]')?.value;
+    const r = addBody(S, d, w);
+    if (r.error) { toast(r.error === 'date' ? 'Pick a date' : 'Enter your weight (a number)'); $(`[data-body=${r.error === 'date' ? 'd' : 'w'}]`)?.focus(); return; }
+    const e = S.body.find(x => x.d === d);
+    ui.bodyForm = null;
+    save();
+    render();
+    toast(`${e.w} ${unit()} · ${dayLabel(d)}`, { label: 'Undo', act: () => { if (r.prev) addBody(S, r.prev.d, r.prev.w); else removeBody(S, d); } });
+  },
+  bodyEdit: el => {
+    const e = (S.body || []).find(x => x.d === el.dataset.d);
+    if (!e) return;
+    ui.bodyForm = { d: e.d, w: e.w, editing: true };
+    render();
+    window.scrollTo(0, 0);
+    $('[data-body=w]')?.focus();
+  },
+  bodyDel: el => {
+    const e = removeBody(S, el.dataset.d);
+    if (!e) return;
+    save();
+    render();
+    toast(`Deleted ${dayLabel(e.d)}`, { label: 'Undo', act: () => addBody(S, e.d, e.w) });
+  },
   weekSheet: () => openSheet({ kind: 'week' }, '[data-act=weekSheet]'),
   logNow: () => { const m = activeMeso(); openSheet({ kind: 'logNow', key: sessKey(m, ui.at.w, ui.at.d) }, '[data-act=logNow]'); },
   // Expand/collapse a card (layout only; nothing is written).
@@ -1528,8 +1580,10 @@ const A = {
         return;
       }
     }
-    if (+S.settings.bodyweight > 0) s.bw = +S.settings.bodyweight; // 3.1: this workout's bodyweight, for e1RM
     const changes = finishSession(m, w, d, s, Date.now()).changes.map(c => `${exById(c.exId)?.name} ${c.from}→${c.to}`);
+    // This workout's bodyweight (3.1/3.8): the Body log on its day, else the old Settings value.
+    const bw = bodyAt(S, s.date) ?? (+S.settings.bodyweight > 0 ? +S.settings.bodyweight : null);
+    if (bw) s.bw = bw;
     ui.at = null;
     stopRest();
     keepAwake(false);
@@ -1717,17 +1771,6 @@ const A = {
 function onBind(t) {
   const b = t.dataset.bind;
   if (b === 'restMain' || b === 'restAcc') { S.settings[b] = +t.value; save(); return; }
-  // Bodyweight (3.1): blank turns it off; anything else must be a positive number.
-  if (b === 'bodyweight') {
-    const v = t.value.trim().replace(',', '.');
-    if (v === '') delete S.settings.bodyweight;
-    else if (+v > 0 && +v < 1000) S.settings.bodyweight = Math.round(+v * 10) / 10;
-    else { toast('Enter your bodyweight as a number (or leave it empty)'); t.value = S.settings.bodyweight ?? ''; return; }
-    t.value = S.settings.bodyweight ?? '';
-    save();
-    toast(S.settings.bodyweight ? `Bodyweight ${S.settings.bodyweight} ${unit()}` : 'Bodyweight off');
-    return;
-  }
   if (b === 'beepLoud' || b === 'keepAwake') {
     S.settings[b] = t.checked;
     save();
@@ -1764,6 +1807,7 @@ document.addEventListener('click', e => {
 
 document.addEventListener('input', e => {
   const t = e.target;
+  if (t.dataset.body) { ui.bodyForm = { ...(ui.bodyForm || { d: dayOf(Date.now()), w: '' }), [t.dataset.body]: t.value }; return; }
   if ('swapq' in t.dataset) { if (['swap', 'addEx'].includes(ui.sheet?.kind)) { ui.sheet.q = t.value; redrawSwapList(); } return; }
   if (t.dataset.f) {
     t.classList.remove('bad');
@@ -1825,7 +1869,7 @@ document.addEventListener('change', e => {
   const t = e.target;
   if (t.dataset.plan) { A.planField(t); return; }
   if ('note' in t.dataset) { A.slotNote(t); return; }
-  if (t.dataset.bind && (t.tagName === 'SELECT' || t.type === 'checkbox' || t.dataset.bind === 'bodyweight')) onBind(t);
+  if (t.dataset.bind && (t.tagName === 'SELECT' || t.type === 'checkbox')) onBind(t);
 });
 
 $('#importFile').addEventListener('change', async e => {
