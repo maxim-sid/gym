@@ -251,8 +251,8 @@
     m.complete = true;
   }
 
-  const hasContent = ss => !!ss && (ss.done || ss.skipped || ss.slots.some(sl => sl.skip || sl.sets.some(x => x.done || x.skip || typedSet(x))));
-  const slotEmpty = sl => !sl.skip && !sl.from && !sl.sets.some(x => x.done || x.skip || x.wu || typedSet(x));
+  const hasContent = ss => !!ss && (ss.done || ss.skipped || ss.slots.some(sl => sl.skip || sl.note || sl.sets.some(x => x.done || x.skip || typedSet(x))));
+  const slotEmpty = sl => !sl.skip && !sl.from && !sl.note && !sl.sets.some(x => x.done || x.skip || x.wu || typedSet(x));
   const typedSet = x => String(x.w ?? '').trim() !== '' || String(x.r ?? '').trim() !== '';
 
   // The data part of "Finish workout". changes: [{exId, from, to}] for next week's set counts (rp only).
@@ -614,6 +614,14 @@
     return { s };
   }
 
+  // Note for today (3.4): sl.note, trimmed, up to 200 characters; empty removes it. → the previous note ('' if none)
+  function setNote(sl, text) {
+    const prev = sl.note ?? '';
+    const t = String(text ?? '').trim().slice(0, 200);
+    if (t) sl.note = t; else delete sl.note;
+    return prev;
+  }
+
   /* ---------- skip (2.4) ---------- */
   // A skipped set keeps its numbers and done:false, so nothing that counts done sets sees it (stats, lastPerf,
   // prefill, charts); it still counts in the planned number of sets.
@@ -919,7 +927,7 @@
       const sl = s.slots[i];
       if (+k.split('-')[1] !== d || s.done || s.skipped || !sl || sl.sets.some(x => x.done)) continue;
       // Other sessions keep a slot with anything in it (typed numbers, skips); only today's is cleared.
-      if (k !== todayKey && (sl.skip || sl.sets.some(x => x.skip || typedSet(x)))) continue;
+      if (k !== todayKey && (sl.skip || sl.note || sl.sets.some(x => x.skip || x.wu || typedSet(x)))) continue;
       if (sl.exId === newExId && !sl.from) continue; // already doing it, as planned
       const before = snapSlot(sl);
       swapToday(s, i, newExId); // 'same' when it already does newExId (a today-only swap): only `from` goes
@@ -990,6 +998,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, workSets, workIndex, setLabel, shiftIdx, addWarmup, removeWarmup, undeleteSet, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, setNote, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

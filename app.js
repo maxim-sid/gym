@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof undeleteSet !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof setNote !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -257,7 +257,8 @@ function viewToday() {
       ${meta.reps ? `<span class="muted">${workSets(sl).length} × ${repsTxt(meta.reps, isTimed(ex, meta))}</span>` : ''}</div></div>
       ${ro ? '' : `<button class="icon more" data-act="cardMenu" data-i="${i}" aria-label="More for ${esc(ex?.name)}">⋯</button>`}
       </div>
-      ${last ? `<div class="last">Last · ${fmtDate(last.date)}: ${fmtSets(last.sets, ex, unit())}</div>` : ''}
+      ${sl.note ? `<div class="snote">“${esc(sl.note)}”</div>` : ''}
+      ${last ? `<div class="last">Last · ${fmtDate(last.date)}: ${fmtSets(last.sets, ex, unit())}${last.note ? `<div class="snote">“${esc(last.note)}”</div>` : ''}</div>` : ''}
       ${meta.notes && !from ? `<div class="note">${esc(meta.notes)}</div>` : ''}
       ${hitTop ? `<div class="up"><span>↑ Top of the range on every set last time: ${weighted ? 'add weight' : 'add weight or reps'}</span>${chip}</div>` : ''}
       <div class="setgrid"><span></span><span class="h">${ex?.bw ? '+' : ''}${unit()}</span><span class="h">${isTimed(ex, meta) ? 'Sec' : 'Reps'}</span><span></span>`;
@@ -613,6 +614,7 @@ function sheetCard() {
     title: esc(ex.name),
     body: `<button class="sact ${logged ? 'off' : ''}" data-act="swapOpen" aria-disabled="${logged}">⇄ ${logged ? 'Swap — untick logged sets first' : 'Swap exercise'}</button>${skip}
     ${sl.skip ? '' : '<button class="sact" data-act="addWarmup">＋ Add warm-up set</button>'}
+    <div class="srow prow"><span>✎ Note for today</span><input data-note value="${esc(sl.note ?? '')}" maxlength="200" placeholder="e.g. left shoulder twingy" enterkeyhint="done" aria-label="Note for today"></div>
     <div class="srow"><span>Weight step · ${unit()}</span><div class="chips">${stepChoices(ex).map(v =>
       `<button class="chip ${v === cur ? 'on' : ''}" data-act="cardStep" data-v="${v}" aria-pressed="${v === cur}">${v}</button>`).join('')}</div></div>${planSec}`,
   };
@@ -1187,6 +1189,16 @@ const A = {
         if (f && (f === t || f !== document.activeElement)) f.value = slot.reps ? slot.reps[n] : '';
       });
     }
+  },
+  // ✎ Note for today (3.4): saved on blur/Enter; also when editing a finished workout. No re-render (the sheet
+  // stays as it is; the card shows it once the sheet closes).
+  slotNote: t => {
+    const c = curW(), sh = ui.sheet;
+    const sl = c && sh?.kind === 'card' && sh.key === sessKey(c.m, c.w, c.d) && c.s.slots[sh.i];
+    if (!sl || (sl.note ?? '') === t.value.trim().slice(0, 200)) return;
+    const prev = setNote(sl, t.value);
+    save();
+    toast(sl.note ? 'Note saved' : 'Note removed', { label: 'Undo', act: () => setNote(sl, prev), guard: writeGuard() });
   },
   // ＋ Add warm-up set (3.3): a blank warm-up row at the top of the slot; its weight field gets focus.
   addWarmup: () => {
@@ -1784,6 +1796,7 @@ document.addEventListener('focusout', e => { if (e.target.dataset?.rename) commi
 document.addEventListener('change', e => {
   const t = e.target;
   if (t.dataset.plan) { A.planField(t); return; }
+  if ('note' in t.dataset) { A.slotNote(t); return; }
   if (t.dataset.bind && (t.tagName === 'SELECT' || t.type === 'checkbox')) onBind(t);
 });
 
