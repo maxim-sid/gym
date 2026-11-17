@@ -251,8 +251,11 @@
     m.complete = true;
   }
 
-  const hasContent = ss => !!ss && (ss.done || ss.skipped || ss.slots.some(sl => sl.skip || sl.note || sl.sets.some(x => x.done || x.skip || typedSet(x))));
-  const slotEmpty = sl => !sl.skip && !sl.from && !sl.note && !sl.sets.some(x => x.done || x.skip || x.wu || typedSet(x));
+  // Anything the user put in a slot: a skip, a note, a done/skipped/typed set or a warm-up row.
+  const slotHasContent = sl => !!(sl.skip || sl.note || sl.sets.some(x => x.done || x.skip || x.wu || typedSet(x)));
+  const hasContent = ss => !!ss && (ss.done || ss.skipped || ss.slots.some(slotHasContent));
+  // Untouched and following the plan: rebuildOpen / finish may rewrite it. (A swapped slot is the user's choice too.)
+  const slotEmpty = sl => !sl.from && !slotHasContent(sl);
   const typedSet = x => String(x.w ?? '').trim() !== '' || String(x.r ?? '').trim() !== '';
 
   // The data part of "Finish workout". changes: [{exId, from, to}] for next week's set counts (rp only).
@@ -261,7 +264,11 @@
   function finishSession(m, w, d, s, now) {
     const base = s.slots.map(sl => workSets(sl).length); // warm-ups aren't planned sets
     s.slots.forEach(sl => {
-      sl.sets = sl.sets.filter(x => x.done || x.skip || typedSet(x));
+      // Drop empty unticked sets, highest first, so the slot's saved indexes (skipMarked) follow each removal.
+      for (let j = sl.sets.length - 1; j >= 0; j--) {
+        const x = sl.sets[j];
+        if (!(x.done || x.skip || typedSet(x))) { sl.sets.splice(j, 1); shiftIdx(sl, j, -1); }
+      }
       delete sl.bump;
     });
     const changes = [];
@@ -735,6 +742,17 @@
     return null;
   }
 
+  // The newest note on this exercise in a finished workout (also when it wasn't done that day: "skipped, shoulder
+  // hurt"), or null. → {note, date}
+  function lastNoteFor(S, exId, { exclude = null, before = Infinity } = {}) {
+    for (const { s } of allSessions(S)) {
+      if (s === exclude || !(s.date < before)) continue;
+      const sl = s.slots.find(x => x.exId === exId && x.note);
+      if (sl) return { note: sl.note, date: s.date };
+    }
+    return null;
+  }
+
   // ↑ hint (double progression, unchanged rule): every set last time at the top of the CURRENT slot's range.
   function slotHints(last, reps, deload) {
     const hitTop = !!(!deload && reps && last && last.sets.every(x => +x.r >= reps[1]));
@@ -927,7 +945,7 @@
       const sl = s.slots[i];
       if (+k.split('-')[1] !== d || s.done || s.skipped || !sl || sl.sets.some(x => x.done)) continue;
       // Other sessions keep a slot with anything in it (typed numbers, skips); only today's is cleared.
-      if (k !== todayKey && (sl.skip || sl.note || sl.sets.some(x => x.skip || x.wu || typedSet(x)))) continue;
+      if (k !== todayKey && slotHasContent(sl)) continue;
       if (sl.exId === newExId && !sl.from) continue; // already doing it, as planned
       const before = snapSlot(sl);
       swapToday(s, i, newExId); // 'same' when it already does newExId (a today-only swap): only `from` goes
@@ -998,6 +1016,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, workSets, workIndex, setLabel, shiftIdx, addWarmup, removeWarmup, undeleteSet, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, setNote, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, lastNoteFor, slotHasContent, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, setNote, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof setNote !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof lastNoteFor !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -91,9 +91,10 @@ function slotCtx(m, w, d, s, i) {
   const deload = isDeload(m, w);
   const occurrence = occurrenceOf(m, d, s, i);
   const last = lastPerf(S, sl.exId, { exclude: s, occurrence, before: s.done ? s.date : Infinity });
+  const lastNote = lastNoteFor(S, sl.exId, { exclude: s, before: s.done ? s.date : Infinity });
   const { hitTop, weighted } = slotHints(last, meta.reps, deload);
   const step = stepOf(ex, unit());
-  return { sl, ex, meta, last, hitTop, weighted, step, suggest: j => prefill(sl, j, last, ex, { deload, step }) };
+  return { sl, ex, meta, last, lastNote, hitTop, weighted, step, suggest: j => prefill(sl, j, last, ex, { deload, step }) };
 }
 
 const activeMeso = () => S.mesos.find(m => m.id === S.activeId);
@@ -228,7 +229,7 @@ function viewToday() {
   const cur = s.done ? -1 : currentSlot(s);
   const opened = openCards(sessKey(m, w, d));
   s.slots.forEach((sl, i) => {
-    const { sl: _sl, ex, meta, last, hitTop, weighted, step, suggest } = slotCtx(m, w, d, s, i);
+    const { sl: _sl, ex, meta, last, lastNote, hitTop, weighted, step, suggest } = slotCtx(m, w, d, s, i);
     // ↑ chip: explicit "+step" for the untouched sets (no longer baked into the suggestion, F15).
     // Retired from the plan (2.9b) and nothing in it: not part of this workout.
     if (m.days[d].exercises[i]?.off && !sl.sets.length && !sl.skip) return;
@@ -258,7 +259,8 @@ function viewToday() {
       ${ro ? '' : `<button class="icon more" data-act="cardMenu" data-i="${i}" aria-label="More for ${esc(ex?.name)}">⋯</button>`}
       </div>
       ${sl.note ? `<div class="snote">“${esc(sl.note)}”</div>` : ''}
-      ${last ? `<div class="last">Last · ${fmtDate(last.date)}: ${fmtSets(last.sets, ex, unit())}${last.note ? `<div class="snote">“${esc(last.note)}”</div>` : ''}</div>` : ''}
+      ${last || lastNote ? `<div class="last">${last ? `Last · ${fmtDate(last.date)}: ${fmtSets(last.sets, ex, unit())}` : 'Last note'}${lastNote
+        ? `<div class="snote">“${esc(lastNote.note)}”${!last || lastNote.date !== last.date ? ` · ${fmtDate(lastNote.date)}` : ''}</div>` : ''}</div>` : ''}
       ${meta.notes && !from ? `<div class="note">${esc(meta.notes)}</div>` : ''}
       ${hitTop ? `<div class="up"><span>↑ Top of the range on every set last time: ${weighted ? 'add weight' : 'add weight or reps'}</span>${chip}</div>` : ''}
       <div class="setgrid"><span></span><span class="h">${ex?.bw ? '+' : ''}${unit()}</span><span class="h">${isTimed(ex, meta) ? 'Sec' : 'Reps'}</span><span></span>`;
@@ -1193,9 +1195,11 @@ const A = {
   // ✎ Note for today (3.4): saved on blur/Enter; also when editing a finished workout. No re-render (the sheet
   // stays as it is; the card shows it once the sheet closes).
   slotNote: t => {
+    const m0 = activeMeso(), shown = session(m0, ui.at.w, ui.at.d) ?? blankSession(m0, ui.at.w, ui.at.d);
+    if ((shown.slots[ui.sheet?.i]?.note ?? '') === t.value.trim().slice(0, 200)) return; // unchanged: store nothing
     const c = curW(), sh = ui.sheet;
     const sl = c && sh?.kind === 'card' && sh.key === sessKey(c.m, c.w, c.d) && c.s.slots[sh.i];
-    if (!sl || (sl.note ?? '') === t.value.trim().slice(0, 200)) return;
+    if (!sl) return;
     const prev = setNote(sl, t.value);
     save();
     toast(sl.note ? 'Note saved' : 'Note removed', { label: 'Undo', act: () => setNote(sl, prev), guard: writeGuard() });
@@ -1478,7 +1482,7 @@ const A = {
     const c = curW();
     if (!c) return;
     const sl = c.s.slots[+el.dataset.i];
-    if (canRemoveLastSet(sl)) { sl.sets.pop(); save(); render(); return; }
+    if (canRemoveLastSet(sl)) { sl.sets.pop(); shiftIdx(sl, sl.sets.length, -1); save(); render(); return; }
     const n = sl.sets.length, last = sl.sets[n - 1];
     if (n > 1) toast(last.done ? `Untick set ${n} first (tap its number)` : `Clear set ${n} first`);
   },
