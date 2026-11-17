@@ -79,3 +79,35 @@ test('bodyweight exercise charts and records use s.bw, then the log on that day,
   assert.equal(r.fallback, true);
   assert.equal(Math.round(r.points[0].y), Math.round(C.e1rm(80, 10)));
 });
+
+test('saveBody: editing an entry under a new date moves it; Undo restores the original and anything replaced', () => {
+  const S = st([{ d: '2026-11-01', w: '84' }, { d: '2026-11-03', w: '83' }]);
+  let r = C.saveBody(S, '2026-11-02', '83.5', { orig: '2026-11-01', today: '2026-11-17' });
+  assert.deepEqual(S.body, [{ d: '2026-11-02', w: '83.5' }, { d: '2026-11-03', w: '83' }]);
+  C.undoBodySave(S, r);
+  assert.deepEqual(S.body, [{ d: '2026-11-01', w: '84' }, { d: '2026-11-03', w: '83' }]);
+  r = C.saveBody(S, '2026-11-03', '82', { orig: '2026-11-01', today: '2026-11-17' });   // onto an existing day
+  assert.deepEqual(S.body, [{ d: '2026-11-03', w: '82' }]);
+  C.undoBodySave(S, r);
+  assert.deepEqual(S.body, [{ d: '2026-11-01', w: '84' }, { d: '2026-11-03', w: '83' }]);
+  r = C.saveBody(S, '2026-11-01', '85', { orig: '2026-11-01', today: '2026-11-17' });   // same day: a plain edit
+  assert.equal(r.orig, null);
+  assert.equal(S.body.length, 2);
+});
+
+test('addBody / saveBody refuse a date after today', () => {
+  const S = st();
+  assert.deepEqual(C.addBody(S, '2026-11-18', '80', '2026-11-17'), { error: 'future' });
+  assert.deepEqual(C.saveBody(S, '2026-11-18', '80', { today: '2026-11-17' }), { error: 'future' });
+  assert.ok(C.addBody(S, '2026-11-17', '80', '2026-11-17').ok);
+  assert.equal(S.body.length, 1);
+});
+
+test('bwFor order: an entry on exactly that day, then s.bw, then the latest before, then current', () => {
+  const day = d => new Date(2026, 10, d, 9).getTime();
+  const S = st([{ d: '2026-11-05', w: '81' }, { d: '2026-11-10', w: '80' }]);
+  assert.equal(C.bwFor(S, { date: day(10), bw: 99 }), 80);                // exact day beats the snapshot
+  assert.equal(C.bwFor(S, { date: day(8), bw: 99 }), 99);                 // then the snapshot
+  assert.equal(C.bwFor(S, { date: day(8) }), 81);                         // then the latest before
+  assert.equal(C.bwFor(S, { date: day(1) }), 80);                         // then current
+});

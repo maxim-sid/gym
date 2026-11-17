@@ -35,9 +35,11 @@
   // The local calendar day of a timestamp (or a 'YYYY-MM-DD' as is).
   const dayOf = t => (isDay(t) ? t : (() => { const x = new Date(t); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; })());
   const dayShift = (d, n) => new Date(Date.parse(d) + n * 864e5).toISOString().slice(0, 10); // UTC math: no DST jumps
-  // Add or replace the entry for date d. → {ok, prev (the replaced entry or null)} | {error: 'date'|'weight'}
-  function addBody(S, d, w) {
+  // Add or replace the entry for date d (not after `today`, when given).
+  // → {ok, prev (the replaced entry or null)} | {error: 'date'|'future'|'weight'}
+  function addBody(S, d, w, today) {
     if (!isDay(d)) return { error: 'date' };
+    if (today && d > today) return { error: 'future' };
     const v = bodyNum(w);
     if (!v) return { error: 'weight' };
     const list = Array.isArray(S.body) ? S.body : (S.body = []);
@@ -46,6 +48,19 @@
     list.push({ d, w: v });
     list.sort((a, b) => (a.d < b.d ? -1 : 1));
     return { ok: true, prev };
+  }
+  // Save from the Body form. Editing an entry (orig = its date) under a new date moves it: the old date goes.
+  // → {ok, d, prev (replaced at d), orig (the removed original, if moved)} | {error} — undo with undoBodySave
+  function saveBody(S, d, w, { orig = null, today } = {}) {
+    const r = addBody(S, d, w, today);
+    if (r.error) return r;
+    const moved = orig && orig !== d ? removeBody(S, orig) : null;
+    return { ok: true, d, prev: r.prev, orig: moved };
+  }
+  function undoBodySave(S, r) {
+    removeBody(S, r.d);
+    if (r.prev) addBody(S, r.prev.d, r.prev.w);
+    if (r.orig) addBody(S, r.orig.d, r.orig.w);
   }
   // Remove the entry for date d. → the entry | null
   function removeBody(S, d) {
@@ -780,9 +795,13 @@
     if (!perf.some(p => p.sets.some(x => +x.w > 0))) return 'reps';
     return ex.bw ? 'load' : 'e1rm';
   }
-  // A workout's bodyweight, the one lookup for charts, records and Finish: saved with it (s.bw), else the Body log
-  // on its day, else the current value. → number | null
-  const bwFor = (S, s) => (+s?.bw > 0 ? +s.bw : bodyFor(S, s?.date ?? Date.now()));
+  // A workout's bodyweight, the one lookup for charts, records and Finish. → number | null
+  // Order: a Body entry on exactly that day (logged after the fact, it's the most accurate), then s.bw, then the
+  // latest entry before that day, then the current value.
+  const bwFor = (S, s) => {
+    const t = s?.date ?? Date.now(), exact = (S.body || []).find(e => e.d === dayOf(t));
+    return exact ? +exact.w : +s?.bw > 0 ? +s.bw : bodyFor(S, t);
+  };
 
   function chartPoints(S, ex) {
     const perf = perfFor(S, ex.id);
@@ -1135,6 +1154,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, workSets, workIndex, setLabel, shiftIdx, addWarmup, removeWarmup, undeleteSet, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, setValue, bestBefore, prSet, chartMetric, bwFor, countedSets, lastPerf, lastNoteFor, slotHasContent, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, setNote, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, addBody, removeBody, bodyAt, bodyFor, currentBody, bodyStats, bodyAvgLine, dayOf, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, setValue, bestBefore, prSet, chartMetric, bwFor, countedSets, lastPerf, lastNoteFor, slotHasContent, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, setNote, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, addBody, saveBody, undoBodySave, removeBody, bodyAt, bodyFor, currentBody, bodyStats, bodyAvgLine, dayOf, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

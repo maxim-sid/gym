@@ -546,7 +546,7 @@ function viewBody() {
       <input type="date" data-body="d" value="${esc(f.d)}" max="${today}" aria-label="Date">
       <input data-body="w" inputmode="decimal" value="${esc(f.w)}" placeholder="${list.length ? esc(list[list.length - 1].w) : u}" aria-label="Bodyweight in ${u}" enterkeyhint="done">
       <button class="btn primary" data-act="bodySave">Save</button></div>
-      ${f.editing ? `<p class="hint">Editing ${dayLabel(f.d)}: Save replaces it.</p>` : ''}</div>
+      ${f.editing ? `<p class="hint">Editing ${dayLabel(f.orig)}: Save replaces it.</p>` : ''}</div>
     <div class="stats"><div class="stat"><b>${st.latest ? val(st.latest.w) : '—'}</b><span>Latest</span></div>
       <div class="stat"><b>${val(st.avg7)}</b><span>7-day average</span></div>
       <div class="stat"><b>${st.change == null ? '—' : `${st.change > 0 ? '+' : ''}${st.change}<small> ${u}</small>`}</b><span>vs 4 weeks ago</span></div></div>`;
@@ -1352,18 +1352,22 @@ const A = {
   },
   bodySave: () => {
     const d = $('[data-body=d]')?.value, w = $('[data-body=w]')?.value;
-    const r = addBody(S, d, w);
-    if (r.error) { toast(r.error === 'date' ? 'Pick a date' : 'Enter your weight (a number)'); $(`[data-body=${r.error === 'date' ? 'd' : 'w'}]`)?.focus(); return; }
+    const r = saveBody(S, d, w, { orig: ui.bodyForm?.orig ?? null, today: dayOf(Date.now()) });
+    if (r.error) {
+      toast({ date: 'Pick a date', future: 'That date is in the future', weight: 'Enter your weight (a number)' }[r.error]);
+      $(`[data-body=${r.error === 'weight' ? 'w' : 'd'}]`)?.focus();
+      return;
+    }
     const e = S.body.find(x => x.d === d);
     ui.bodyForm = null;
     save();
     render();
-    toast(`${e.w} ${unit()} · ${dayLabel(d)}`, { label: 'Undo', act: () => { if (r.prev) addBody(S, r.prev.d, r.prev.w); else removeBody(S, d); } });
+    toast(`${e.w} ${unit()} · ${dayLabel(d)}${r.orig ? ` (moved from ${dayLabel(r.orig.d)})` : ''}`, { label: 'Undo', act: () => undoBodySave(S, r) });
   },
   bodyEdit: el => {
     const e = (S.body || []).find(x => x.d === el.dataset.d);
     if (!e) return;
-    ui.bodyForm = { d: e.d, w: e.w, editing: true };
+    ui.bodyForm = { d: e.d, w: e.w, editing: true, orig: e.d }; // orig: changing the date moves this entry
     render();
     window.scrollTo(0, 0);
     $('[data-body=w]')?.focus();
