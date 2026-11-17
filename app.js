@@ -177,7 +177,7 @@ function viewToday() {
     return `<section class="empty"><h1>No active plan</h1>
       <p>Build a mesocycle: choose exercises for each training day, then log weights and reps.
       Each week the app tells you how hard to push (RIR) and adjusts your sets based on how you recovered.</p>
-      <button class="btn primary block" data-act="newMeso" data-t="${esc(MY_PLAN.name)}">Start my 3-day plan</button>
+      <button class="btn primary block" data-act="newMeso" data-t="${esc(MY_PLAN.name)}">Start my plan</button>
       <button class="btn block" data-act="newMeso">Build a different plan</button></section>`;
   }
   if (!ui.at || ui.at.meso !== m.id) ui.at = { meso: m.id, ...m.pos };
@@ -1170,7 +1170,7 @@ function draftFrom(m, editId) {
 
 function applyTemplate(D, t) {
   if (t === MY_PLAN.name) {
-    Object.assign(D, { name: 'My 3-day plan', style: 'fixed', weeks: 6, deload: false });
+    Object.assign(D, { name: MY_PLAN.name, style: 'fixed', weeks: 6, deload: false });
     D.days = MY_PLAN.days.map(day => ({
       name: day.name, weekday: day.weekday, notes: day.notes ?? '',
       exercises: day.exercises.map(e => ({
