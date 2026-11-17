@@ -154,7 +154,14 @@
     return d;
   }
 
-  const doneSets = sl => sl.sets.filter(x => x.done);
+  // Warm-up sets (3.3, x.wu): logged and shown, but never working sets: not in stats, history, suggestions,
+  // counts or progression. "Working" helpers below are what every counting reader uses.
+  const doneSets = sl => sl.sets.filter(x => x.done && !x.wu);
+  const workSets = sl => sl.sets.filter(x => !x.wu);
+  // Index of set j among the working sets (warm-ups sit at the top), or among the warm-ups for a warm-up.
+  const workIndex = (sl, j) => sl.sets.slice(0, j).filter(x => !!x.wu === !!sl.sets[j]?.wu).length;
+  // What the set's number cell shows: "W" for a warm-up, else its working number (1, 2, …).
+  const setLabel = (sl, j) => (sl.sets[j]?.wu ? 'W' : String(workIndex(sl, j) + 1));
   const e1rm = (w, r) => w * (1 + r / 30);
   const blankSets = n => Array.from({ length: n }, () => ({ w: '', r: '', done: false }));
   const roundLoad = (w, unit) => { const step = unit === 'kg' ? 2.5 : 5; return Math.round(w / step) * step; };
@@ -245,14 +252,14 @@
   }
 
   const hasContent = ss => !!ss && (ss.done || ss.skipped || ss.slots.some(sl => sl.skip || sl.sets.some(x => x.done || x.skip || typedSet(x))));
-  const slotEmpty = sl => !sl.skip && !sl.from && !sl.sets.some(x => x.done || x.skip || typedSet(x));
+  const slotEmpty = sl => !sl.skip && !sl.from && !sl.sets.some(x => x.done || x.skip || x.wu || typedSet(x));
   const typedSet = x => String(x.w ?? '').trim() !== '' || String(x.r ?? '').trim() !== '';
 
   // The data part of "Finish workout". changes: [{exId, from, to}] for next week's set counts (rp only).
   // Only EMPTY unticked sets are dropped (after counting base); skipped sets keep their values (F07). The date is the
   // first tick, so a late Finish doesn't move it (F12) — computed only here, never on edit.
   function finishSession(m, w, d, s, now) {
-    const base = s.slots.map(sl => sl.sets.length);
+    const base = s.slots.map(sl => workSets(sl).length); // warm-ups aren't planned sets
     s.slots.forEach(sl => {
       sl.sets = sl.sets.filter(x => x.done || x.skip || typedSet(x));
       delete sl.bump;
@@ -287,12 +294,12 @@
     s.slots.forEach((sl, i) => {
       if (!sl.sets.length && !sl.skip) return; // a retired exercise (2.9b): not part of this workout
       of++;
-      if (sl.sets.some(x => x.done)) exercises++;
+      if (sl.sets.some(x => x.done && !x.wu)) exercises++;
       if (sl.skip) skipped++; // a skipped exercise is neither "not started" nor has empty sets (all undone are skipped)
       const started = sl.skip || sl.sets.some(x => x.done || x.skip || typedSet(x));
       if (!started) { notStarted++; return; }
       sl.sets.forEach((x, j) => {
-        if (x.done) sets++;
+        if (x.done) { if (!x.wu) sets++; }
         else if (x.skip) return;
         else if (typedSet(x)) typed.push({ i, j });
         else empty++;
@@ -343,7 +350,7 @@
     const preW = t(pre?.w) === '' || +pre.w === 0 ? '' : t(pre.w);
     const w = t(st.w) !== '' ? t(st.w) : preW;
     const r = t(st.r) !== '' ? t(st.r) : t(pre?.r);
-    if (w === '' ? !ex?.bw : isNaN(+w)) return { error: 'weight' };   // blank is only OK for bodyweight exercises
+    if (w === '' ? !ex?.bw && !st.wu : isNaN(+w)) return { error: 'weight' }; // blank: bodyweight exercises and warm-ups
     if (r === '' || !(+r > 0)) return { error: 'reps' };
     return { ok: true, w, r };
   }
@@ -378,7 +385,7 @@
     s.slots.forEach(sl => {
       while (sl.sets.length > 1) {
         const x = sl.sets[sl.sets.length - 1];
-        if (x.done || x.skip || String(x.w).trim() !== '' || String(x.r).trim() !== '') break;
+        if (x.done || x.skip || x.wu || String(x.w).trim() !== '' || String(x.r).trim() !== '') break;
         sl.sets.pop();
         n++;
       }
@@ -389,12 +396,12 @@
   // −Set may only remove an untouched last set (not done, nothing typed), and never the only set.
   function canRemoveLastSet(sl) {
     const last = sl.sets[sl.sets.length - 1];
-    return sl.sets.length > 1 && !last.done && !last.skip && last.w === '' && last.r === '';
+    return sl.sets.length > 1 && !last.done && !last.skip && !last.wu && last.w === '' && last.r === '';
   }
 
   /* ---------- current card (2.6) ---------- */
   // A slot still has work while it isn't skipped and has an undone, unskipped set.
-  const slotOpen = sl => !sl.skip && sl.sets.some(x => !x.done && !x.skip);
+  const slotOpen = sl => !sl.skip && sl.sets.some(x => !x.done && !x.skip && !x.wu);
   // The card to show expanded: the slot of the most recently ticked set (by t) if it still has work, else the
   // first slot with work. → index, or -1 when nothing is left.
   function currentSlot(s) {
@@ -408,10 +415,10 @@
   function nextSet(s) {
     const i = currentSlot(s);
     if (i < 0) return null;
-    return { i, j: s.slots[i].sets.findIndex(x => !x.done && !x.skip) };
+    return { i, j: s.slots[i].sets.findIndex(x => !x.done && !x.skip && !x.wu) };
   }
   // Every set ticked or skipped (and at least one ticked): Finish becomes the main action.
-  const allLogged = s => s.slots.some(sl => sl.sets.some(x => x.done)) && s.slots.every(sl => sl.skip || sl.sets.every(x => x.done || x.skip));
+  const allLogged = s => s.slots.some(sl => sl.sets.some(x => x.done && !x.wu)) && s.slots.every(sl => sl.skip || sl.sets.every(x => x.done || x.skip || x.wu));
 
   /* ---------- forgotten Finish (2.7) ---------- */
   const STALE_MS = 6 * 3600e3;
@@ -617,7 +624,7 @@
   function skipSlot(sl) {
     if (sl.skip) return false;
     sl.skipMarked = [];
-    sl.sets.forEach((x, j) => { if (!x.done && !x.skip) { x.skip = true; sl.skipMarked.push(j); } });
+    sl.sets.forEach((x, j) => { if (!x.done && !x.skip && !x.wu) { x.skip = true; sl.skipMarked.push(j); } });
     sl.skip = true;
     return true;
   }
@@ -628,12 +635,33 @@
     delete sl.skipMarked;
     return true;
   }
+  // + Add warm-up set: a blank warm-up after any existing ones, at the top of the slot. Indexes the slot keeps
+  // (the +step chip, skipMarked) move down with the sets. → j of the new set
+  function addWarmup(sl) {
+    const j = sl.sets.filter(x => x.wu).length;
+    sl.sets.splice(j, 0, { w: '', r: '', done: false, wu: true });
+    const shift = a => a && a.forEach((k, n) => { if (k >= j) a[n] = k + 1; });
+    shift(sl.bump);
+    shift(sl.skipMarked);
+    return j;
+  }
+  // Undo of addWarmup while that row is still blank and undone.
+  function removeWarmup(sl, j) {
+    const x = sl.sets[j];
+    if (!x?.wu || x.done || typedSet(x)) return false;
+    sl.sets.splice(j, 1);
+    const shift = a => a && a.forEach((k, n) => { if (k > j) a[n] = k - 1; });
+    shift(sl.bump);
+    shift(sl.skipMarked);
+    return true;
+  }
+
   // Delete set j: never a done set or the only set. → {set} (put back with sl.sets.splice(j, 0, set)) | {error}
   function deleteSet(sl, j) {
     const x = sl.sets[j];
     if (!x) return { error: 'missing' };
     if (x.done) return { error: 'done' };
-    if (sl.sets.length < 2) return { error: 'last' };
+    if (!x.wu && workSets(sl).length < 2) return { error: 'last' }; // a warm-up can always go
     return { set: sl.sets.splice(j, 1)[0] };
   }
 
@@ -665,7 +693,7 @@
   }
 
   // Sets that count for history, suggestions and stats. (Warm-ups will be excluded here: 3.3.)
-  const countedSets = sl => sl.sets.filter(x => x.done && +x.r > 0);
+  const countedSets = sl => sl.sets.filter(x => x.done && !x.wu && +x.r > 0);
 
   // The last time this EXERCISE was done, in any block (replaces the slot-index prevSlot, F05).
   // Finished sessions only, newest first, deload weeks skipped. occurrence: the k-th slot with this exercise
@@ -678,7 +706,7 @@
       const hits = s.slots.filter((sl, k) => sl.exId === exId && countedSets(sl).length && (!occurrence || !swappedFrom(m, d, s, k)));
       if (!hits.length) continue;
       const sl = hits[Math.min(occurrence, hits.length - 1)];
-      return { date: s.date, sets: countedSets(sl), note: sl.note ?? '', m, w, d };
+      return { date: s.date, sets: countedSets(sl), wu: sl.sets.filter(x => x.wu && x.done && +x.r > 0), note: sl.note ?? '', m, w, d };
     }
     return null;
   }
@@ -698,8 +726,14 @@
   //   previous set's reps instead. No last time → today's previous → ''.
   function prefill(sl, j, last, ex, { deload = false, step = 2.5 } = {}) {
     const usable = v => v != null && String(v).trim() !== '' && +v !== 0;
-    const prev = sl.sets.slice(0, j).reverse().find(x => x.done && +x.r > 0) || null;
-    const ls = last ? last.sets[j] || last.sets[last.sets.length - 1] : null;
+    // A warm-up: last time's warm-up in the same position, as it was, or nothing (never from working sets).
+    if (sl.sets[j]?.wu) {
+      const lw = last?.wu?.[workIndex(sl, j)];
+      return lw ? { w: usable(lw.w) ? String(+lw.w) : '', r: String(lw.r) } : { w: '', r: '' };
+    }
+    const wj = workIndex(sl, j); // working sets line up with last time's working sets
+    const prev = sl.sets.slice(0, j).reverse().find(x => x.done && !x.wu && +x.r > 0) || null;
+    const ls = last ? last.sets[wj] || last.sets[last.sets.length - 1] : null;
     let fromLast = '';
     if (ls) {
       const base = +ls.w || 0;
@@ -725,7 +759,7 @@
     const ls = last.sets[j] || last.sets[last.sets.length - 1];
     return { w: String(Math.round((+ls.w + step) * 1000) / 1000), r: String(reps[0]) };
   };
-  const untouched = x => !x.done && !x.skip && String(x.w).trim() === '' && String(x.r).trim() === '';
+  const untouched = x => !x.done && !x.skip && !x.wu && String(x.w).trim() === '' && String(x.r).trim() === '';
   // The chip's state lives on the session slot: sl.bump = [indexes the chip filled] while it is on (optional field,
   // ignored by old code). It is never inferred from values, so hand-typed numbers can't switch it on.
   const bumpOn = sl => Array.isArray(sl.bump);
@@ -736,7 +770,7 @@
     let n = 0;
     if (bumpOn(sl)) {
       sl.bump.forEach(j => {
-        const x = sl.sets[j], b = x && bumpValues(last, j, step, reps);
+        const x = sl.sets[j], b = x && bumpValues(last, workIndex(sl, j), step, reps);
         if (x && !x.done && x.w === b.w && x.r === b.r) { x.w = ''; x.r = ''; n++; }
       });
       delete sl.bump;
@@ -745,7 +779,7 @@
     sl.bump = [];
     sl.sets.forEach((x, j) => {
       if (!untouched(x)) return;
-      const b = bumpValues(last, j, step, reps);
+      const b = bumpValues(last, workIndex(sl, j), step, reps);
       x.w = b.w;
       x.r = b.r;
       sl.bump.push(j);
@@ -847,7 +881,7 @@
     const planned = sl.from ?? sl.exId; // what the plan had when this slot was first swapped (or now)
     if (newExId === planned) delete sl.from; else sl.from = planned;
     sl.exId = newExId;
-    sl.sets = sl.sets.map(() => ({ w: '', r: '', done: false }));
+    sl.sets = sl.sets.map(x => (x.wu ? { w: '', r: '', done: false, wu: true } : { w: '', r: '', done: false }));
     sl.fb = {};
     delete sl.skip;
     delete sl.skipMarked;
@@ -938,7 +972,7 @@
 
   const api = { DEFAULT_EX, uid, freshState, normalize, validate, loadFrom, loadState, summarize, importInto,
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
-    FEEDBACK, setDelta, doneSets, e1rm, blankSets, roundLoad, repsTxt, parseReps,
+    FEEDBACK, setDelta, doneSets, workSets, workIndex, setLabel, addWarmup, removeWarmup, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
     hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);

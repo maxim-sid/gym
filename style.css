@@ -82,6 +82,9 @@ input::placeholder { color: var(--ph); opacity: 1; font-weight: 400; }
 .setgrid input { text-align: center; padding: 10px 4px; font-variant-numeric: tabular-nums; font-weight: 600; }
 .setgrid input.d { background: rgba(56,217,122,.20); border-color: transparent; color: var(--ok); font-weight: 700; } /* ok on it: 5.7:1 */
 .setgrid input.sk { opacity: .45; text-decoration: line-through; }
+/* Warm-up rows (3.3): smaller, muted text; still 44 px to tap */
+.setgrid .n.wu, .setgrid input.wu { font-size: 14px; color: var(--muted); }
+.setgrid input.wu.d { color: var(--ok); }
 .setgrid .n.sk { font-size: 20px; color: var(--muted); border: 1px dashed var(--field); }
 .skipcard { padding-top: 4px; padding-bottom: 4px; }
 .skipcard .row { margin-top: 0; }
