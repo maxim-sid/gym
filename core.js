@@ -706,13 +706,27 @@
     }).join(', ');
   }
 
-  // Progress chart for one exercise. → {metric: 'e1rm'|'load'|'reps'|'hold', points: [{x: date, y}]}
+  // Progress chart for one exercise. → {metric: 'e1rm'|'e1rmBw'|'load'|'reps'|'hold', points: [{x: date, y}]}
   // e1rm: only sets with a known load (w > 0) and 1–12 reps; sessions without one are left out, not plotted as 0.
+  // e1rmBw (3.1, bodyweight exercise once a bodyweight is known): e1RM of bodyweight + added load, using the
+  // bodyweight saved with each workout (s.bw) or, for older ones, the current setting (then fallback: true).
   function chartPoints(S, ex) {
     const perf = perfFor(S, ex.id);
     const maxOf = (sets, f) => Math.max(...sets.map(f));
     const per = f => perf.map(p => ({ x: p.date, y: f(p.sets) }));
     if (ex.timed) return { metric: 'hold', points: per(sets => maxOf(sets, x => +x.r)) };
+    const bwNow = +S.settings?.bodyweight > 0 ? +S.settings.bodyweight : null;
+    if (ex.bw && (bwNow || perf.some(p => p.bw))) {
+      let fallback = false;
+      const points = perf.map(p => {
+        const body = p.bw ?? bwNow;
+        if (!body) return null;
+        if (!p.bw) fallback = true;
+        const q = p.sets.filter(x => +x.r >= 1 && +x.r <= 12);
+        return q.length ? { x: p.date, y: maxOf(q, x => e1rm(body + Math.max(0, +x.w || 0), +x.r)) } : null;
+      }).filter(Boolean);
+      return { metric: 'e1rmBw', points, bw: bwNow, fallback };
+    }
     const anyLoad = perf.some(p => p.sets.some(x => +x.w > 0));
     if (!anyLoad) return { metric: 'reps', points: per(sets => maxOf(sets, x => +x.r)) };
     if (ex.bw) return { metric: 'load', points: per(sets => Math.max(0, maxOf(sets, x => +x.w || 0))) };
@@ -972,7 +986,7 @@
     allSessions(S).forEach(({ s }) => s.slots.forEach(sl => {
       if (sl.exId !== exId) return;
       const sets = doneSets(sl).filter(x => +x.r > 0);
-      if (sets.length) out.push({ date: s.date, sets });
+      if (sets.length) out.push({ date: s.date, sets, ...(+s.bw > 0 ? { bw: +s.bw } : {}) });
     }));
     return out.sort((a, b) => a.date - b.date);
   }

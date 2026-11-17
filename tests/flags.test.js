@@ -163,3 +163,22 @@ test('acceptSet: a band exercise accepts a blank weight; whitespace counts as bl
   assert.deepEqual(C.acceptSet({ w: ' ', r: '8' }, { w: '50', r: '' }, lift), { ok: true, w: '50', r: '8' });
   assert.deepEqual(C.acceptSet({ w: '60', r: ' ' }, blank, lift), { error: 'reps' });
 });
+
+test('chartPoints bodyweight with a bodyweight: e1RM of bodyweight + added load; s.bw per workout, else the setting', () => {
+  const ex = { id: 'dip', bw: true, timed: false };
+  const S = stateWith([[['', '10']], [['20', '6'], ['', '15']]], ex);
+  S.settings = { bodyweight: 80 };
+  let r = C.chartPoints(S, ex);
+  assert.equal(r.metric, 'e1rmBw');
+  assert.equal(r.fallback, true);
+  assert.deepEqual(r.points.map(p => Math.round(p.y)), [Math.round(C.e1rm(80, 10)), Math.round(C.e1rm(100, 6))]); // 15 reps: out
+  const ms = S.mesos[0];
+  Object.values(ms.log).forEach(s => { s.bw = 75; });                     // saved with each workout
+  r = C.chartPoints(S, ex);
+  assert.equal(r.fallback, false);
+  assert.equal(Math.round(r.points[0].y), Math.round(C.e1rm(75, 10)));
+  delete S.settings.bodyweight;                                           // setting cleared: saved values still count
+  assert.equal(C.chartPoints(S, ex).metric, 'e1rmBw');
+  Object.values(ms.log).forEach(s => { delete s.bw; });
+  assert.equal(C.chartPoints(S, ex).metric, 'load');                      // no bodyweight anywhere: as before
+});

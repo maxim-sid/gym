@@ -183,6 +183,7 @@ ol.hint { padding-left: 20px; }
 .banner.stale { background: rgba(255,176,32,.12); color: var(--warn); }
 .banner.stale .row { margin-top: 8px; }
 .line.tog { min-height: 52px; gap: 12px; }
+.bwin { width: 96px; flex: none; text-align: right; }
 .line.tog input { width: 24px; height: 24px; min-height: 0; flex: none; accent-color: var(--acc); }
 .rrow { gap: 8px; align-items: center; }
 .rrow .rv { min-width: 48px; font-variant-numeric: tabular-nums; }

@@ -442,13 +442,15 @@ function viewProgress() {
 
   const perf = perfFor(S, ui.progEx);
   const ex = exById(ui.progEx);
-  const { metric, points } = chartPoints(S, ex);
+  const cp = chartPoints(S, ex), { metric, points } = cp;
   const label = {
     e1rm: `Estimated 1-rep max (${unit()}) · sets of 1–12 reps with a weight`,
+    e1rmBw: `Estimated 1-rep max (${unit()}) · incl. bodyweight${cp.bw ? ` ${cp.bw} ${unit()}` : ''}${
+      cp.fallback ? ' (older workouts use today’s)' : cp.bw ? '' : ' saved with each workout'}`,
     load: `Best added weight (${unit()})`,
     reps: 'Best reps',
     hold: 'Longest hold (seconds)',
-  }[metric];
+  }[metric] + (ex.bw && !ex.timed && metric !== 'e1rmBw' ? ' · <span class="muted">set your bodyweight in Settings for e1RM</span>' : '');
   h += `<div class="card"><select data-bind="progEx">${logged.map(e => `<option value="${e.id}" ${e.id === ui.progEx ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>
     <div class="sub">${label}</div>${chart(points)}</div>
     <div class="card list">${perf.slice().reverse().slice(0, 12).map(p => `<div class="line"><span class="muted">${fmtDate(p.date)}</span><span>${fmtSets(p.sets, ex, unit())}</span></div>`).join('')}</div>`;
@@ -498,6 +500,9 @@ function viewSettings() {
           `<option value="${s}" ${S.settings[k] === s ? 'selected' : ''}>${fmtTime(s)}</option>`).join('')}</select></div>`).join('')}
     </div>
     <p class="hint" style="margin:-4px 2px 12px">Changing units only changes the label. Numbers you already logged stay the same.</p>
+    <div class="card list"><div class="sub">Body</div>
+      <label class="line"><span>Bodyweight (${unit()})</span><input class="bwin" data-bind="bodyweight" inputmode="decimal" value="${esc(S.settings.bodyweight ?? '')}" placeholder="off" aria-label="Bodyweight in ${unit()}"></label>
+      <p class="hint">Optional. Saved with each workout you finish; bodyweight exercises then chart e1RM including it.</p></div>
     <div class="card list"><div class="sub">Rest timer</div>
       <label class="line tog"><span>Beep even in silent mode (may pause your music)</span><input type="checkbox" data-bind="beepLoud" ${S.settings.beepLoud ? 'checked' : ''}></label>
       <label class="line tog"><span>Keep screen on during workouts</span><input type="checkbox" data-bind="keepAwake" ${S.settings.keepAwake ? 'checked' : ''}></label>
@@ -1516,6 +1521,7 @@ const A = {
         return;
       }
     }
+    if (+S.settings.bodyweight > 0) s.bw = +S.settings.bodyweight; // 3.1: this workout's bodyweight, for e1RM
     const changes = finishSession(m, w, d, s, Date.now()).changes.map(c => `${exById(c.exId)?.name} ${c.from}→${c.to}`);
     ui.at = null;
     stopRest();
@@ -1704,6 +1710,17 @@ const A = {
 function onBind(t) {
   const b = t.dataset.bind;
   if (b === 'restMain' || b === 'restAcc') { S.settings[b] = +t.value; save(); return; }
+  // Bodyweight (3.1): blank turns it off; anything else must be a positive number.
+  if (b === 'bodyweight') {
+    const v = t.value.trim().replace(',', '.');
+    if (v === '') delete S.settings.bodyweight;
+    else if (+v > 0 && +v < 1000) S.settings.bodyweight = Math.round(+v * 10) / 10;
+    else { toast('Enter your bodyweight as a number (or leave it empty)'); t.value = S.settings.bodyweight ?? ''; return; }
+    t.value = S.settings.bodyweight ?? '';
+    save();
+    toast(S.settings.bodyweight ? `Bodyweight ${S.settings.bodyweight} ${unit()}` : 'Bodyweight off');
+    return;
+  }
   if (b === 'beepLoud' || b === 'keepAwake') {
     S.settings[b] = t.checked;
     save();
@@ -1801,7 +1818,7 @@ document.addEventListener('change', e => {
   const t = e.target;
   if (t.dataset.plan) { A.planField(t); return; }
   if ('note' in t.dataset) { A.slotNote(t); return; }
-  if (t.dataset.bind && (t.tagName === 'SELECT' || t.type === 'checkbox')) onBind(t);
+  if (t.dataset.bind && (t.tagName === 'SELECT' || t.type === 'checkbox' || t.dataset.bind === 'bodyweight')) onBind(t);
 });
 
 $('#importFile').addEventListener('change', async e => {
