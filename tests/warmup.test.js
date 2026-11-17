@@ -107,3 +107,30 @@ test('−Set, deleteSet, tidySlots, +step chip and swaps leave warm-ups in place
   assert.deepEqual(C.rebuildOpen(m), []);
   assert.equal(m.log['1-0'].slots[0].sets.length, 3);
 });
+
+test('shiftIdx: deleting a warm-up (or any set) keeps the +step chip pointing at the right sets', () => {
+  const last = { sets: [set(100, 10), set(90, 10)] };
+  const sl = { sets: [wu('', '', false), blank(), blank()] };
+  C.toggleBump(sl, last, 2.5, [8, 10]);                       // fills working sets 1 and 2 (j 1, 2)
+  assert.deepEqual(sl.bump, [1, 2]);
+  const r = C.deleteSet(sl, 0);                               // delete the warm-up
+  assert.deepEqual(sl.bump, [0, 1]);
+  sl.sets[1].w = '95';                                        // user edits the second one
+  C.toggleBump(sl, last, 2.5, [8, 10]);                       // chip off: clears only its unchanged set
+  assert.deepEqual(sl.sets.map(x => x.w), ['', '95']);
+  // Undo of a delete puts the set and its chip index back.
+  const sl2 = { sets: [blank(), blank(), blank()] };
+  C.toggleBump(sl2, last, 2.5, [8, 10]);
+  const d = C.deleteSet(sl2, 1);
+  assert.deepEqual(sl2.bump, [0, 1]);
+  C.undeleteSet(sl2, 1, d);
+  assert.deepEqual(sl2.bump, [0, 1, 2]);
+  assert.equal(sl2.sets[1].w, '92.5');
+  // Warm-up Undo, and skip-exercise marks.
+  const sl3 = { sets: [blank(), blank()], skipMarked: [0, 1] };
+  const j = C.addWarmup(sl3);
+  assert.deepEqual(sl3.skipMarked, [1, 2]);
+  C.removeWarmup(sl3, j);
+  assert.deepEqual(sl3.skipMarked, [0, 1]);
+  assert.ok(r.set.wu);
+});

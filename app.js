@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof addWarmup !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof undeleteSet !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -139,6 +139,13 @@ function planChange(apply, focusSel, quiet) {
 }
 // "Set 2" / "Warm-up" for labels and toasts (warm-ups don't count in the set numbers).
 const setName = (sl, j) => (sl.sets[j]?.wu ? 'Warm-up' : `Set ${setLabel(sl, j)}`);
+// The running timer remembers its set (rest.at) so unticking that set can stop it; keep it pointing at the same set
+// when a set is inserted (delta +1) or removed (−1) at j of slot i in the shown workout.
+function shiftRestAt(i, j, delta) {
+  const a = rest?.at;
+  if (!a || a.w !== ui.at?.w || a.d !== ui.at?.d || a.i !== i) return;
+  if (delta > 0 ? a.j >= j : a.j > j) { a.j += delta; restSave(); }
+}
 const refusal = s => s?.skipped ? 'This workout was skipped — tap “Do it anyway” first' : 'Tap Edit to change a finished workout';
 
 function curW() {
@@ -1187,14 +1194,13 @@ const A = {
     const sl = c && sh?.kind === 'card' && sh.key === sessKey(c.m, c.w, c.d) && c.s.slots[sh.i];
     if (!sl) { closeSheet(); return; }
     const i = sh.i, j = addWarmup(sl);
-    const a = rest?.at;
-    if (a && a.w === c.w && a.d === c.d && a.i === i && a.j >= j) a.j++; // the timer's set moved down
+    shiftRestAt(i, j, 1);
     save();
     ui.sheet = null;
     openCards(sessKey(c.m, c.w, c.d)).add(i);
     render();
     $(`input[data-i="${i}"][data-j="${j}"][data-f="w"]`)?.focus();
-    toast('Warm-up set added', { label: 'Undo', act: () => removeWarmup(sl, j), guard: writeGuard() });
+    toast('Warm-up set added', { label: 'Undo', act: () => { if (removeWarmup(sl, j)) shiftRestAt(i, j, -1); }, guard: writeGuard() });
   },
   swapMode: el => { ui.sheet.mode = el.dataset.v; render(); $(`#sheet [data-act=swapMode][data-v="${el.dataset.v}"]`)?.focus(); },
   swapNoteGo: el => doSwap(ui.sheet.pick, el.dataset.clear === '1'),
@@ -1429,12 +1435,11 @@ const A = {
     const nm = setName(sl, j); // before the delete shifts the numbers
     const r = deleteSet(sl, j);
     if (r.error) { closeSheet(); return; }
-    const a = rest?.at;
-    if (a && a.w === ui.at.w && a.d === ui.at.d && a.i === i && a.j > j) a.j--; // the timer's set moved up
+    shiftRestAt(i, j, -1);
     save();
     ui.sheet = null;
     render();
-    toast(`${nm} deleted`, { label: 'Undo', act: () => sl.sets.splice(j, 0, r.set), guard: writeGuard() });
+    toast(`${nm} deleted`, { label: 'Undo', act: () => { undeleteSet(sl, j, r); shiftRestAt(i, j, 1); }, guard: writeGuard() });
   },
   setDelKeep: () => { ui.sheet.confirmDel = false; render(); $('#sheet [data-act=setDelete]')?.focus(); },
   // Skip the exercise (or the rest of it) from the card ⋯ sheet; Unskip from there or the card's inline Undo.

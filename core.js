@@ -635,14 +635,25 @@
     delete sl.skipMarked;
     return true;
   }
-  // + Add warm-up set: a blank warm-up after any existing ones, at the top of the slot. Indexes the slot keeps
-  // (the +step chip, skipMarked) move down with the sets. → j of the new set
+  // The slot keeps set indexes (the +step chip's sl.bump, skip-exercise's sl.skipMarked). When a set is inserted at
+  // `from` (delta +1) they move down; when the set at `from` is removed (delta −1) its own index goes and later
+  // ones move up. → which lists held `from` before a removal (to put it back on undo)
+  function shiftIdx(sl, from, delta) {
+    const held = {};
+    ['bump', 'skipMarked'].forEach(key => {
+      const a = sl[key];
+      if (!Array.isArray(a)) return;
+      if (delta < 0) held[key] = a.includes(from);
+      sl[key] = a.filter(k => !(delta < 0 && k === from)).map(k => (k > from || (delta > 0 && k === from) ? k + delta : k));
+    });
+    return held;
+  }
+
+  // + Add warm-up set: a blank warm-up after any existing ones, at the top of the slot. → j of the new set
   function addWarmup(sl) {
     const j = sl.sets.filter(x => x.wu).length;
     sl.sets.splice(j, 0, { w: '', r: '', done: false, wu: true });
-    const shift = a => a && a.forEach((k, n) => { if (k >= j) a[n] = k + 1; });
-    shift(sl.bump);
-    shift(sl.skipMarked);
+    shiftIdx(sl, j, 1);
     return j;
   }
   // Undo of addWarmup while that row is still blank and undone.
@@ -650,19 +661,24 @@
     const x = sl.sets[j];
     if (!x?.wu || x.done || typedSet(x)) return false;
     sl.sets.splice(j, 1);
-    const shift = a => a && a.forEach((k, n) => { if (k > j) a[n] = k - 1; });
-    shift(sl.bump);
-    shift(sl.skipMarked);
+    shiftIdx(sl, j, -1);
     return true;
   }
 
-  // Delete set j: never a done set or the only set. → {set} (put back with sl.sets.splice(j, 0, set)) | {error}
+  // Delete set j: never a done set or the only working set. → {set, held} for undeleteSet | {error}
   function deleteSet(sl, j) {
     const x = sl.sets[j];
     if (!x) return { error: 'missing' };
     if (x.done) return { error: 'done' };
     if (!x.wu && workSets(sl).length < 2) return { error: 'last' }; // a warm-up can always go
-    return { set: sl.sets.splice(j, 1)[0] };
+    const set = sl.sets.splice(j, 1)[0];
+    return { set, held: shiftIdx(sl, j, -1) };
+  }
+  // Undo of deleteSet: the set back at j, and back in the index lists it was in.
+  function undeleteSet(sl, j, r) {
+    sl.sets.splice(j, 0, r.set);
+    shiftIdx(sl, j, 1);
+    Object.entries(r.held || {}).forEach(([key, had]) => { if (had && Array.isArray(sl[key])) sl[key] = [...sl[key], j].sort((a, b) => a - b); });
   }
 
   // "100×8, 100×7" · bodyweight "BW×8, +20×6" · timed "30 s, +10 kg · 25 s". Legacy weighted 0 → "8 reps".
@@ -972,7 +988,7 @@
 
   const api = { DEFAULT_EX, uid, freshState, normalize, validate, loadFrom, loadState, summarize, importInto,
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
-    FEEDBACK, setDelta, doneSets, workSets, workIndex, setLabel, addWarmup, removeWarmup, e1rm, blankSets, roundLoad, repsTxt, parseReps,
+    FEEDBACK, setDelta, doneSets, workSets, workIndex, setLabel, shiftIdx, addWarmup, removeWarmup, undeleteSet, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
     hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
