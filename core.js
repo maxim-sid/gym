@@ -23,6 +23,32 @@
   const uid = () => Math.random().toString(36).slice(2, 10);
   const isObj = x => x !== null && typeof x === 'object' && !Array.isArray(x);
 
+  /* ---------- saved builder draft and backup reminder (3.6) ---------- */
+  const DRAFT_KEY = 'liftbook-draft'; // the unsaved plan builder draft, outside S
+  // A stored draft, checked against today's data: exercises that no longer exist are dropped, and an edit of a block
+  // that's gone becomes a new block. → the draft | null (unreadable or not a draft)
+  function parseDraft(raw, S) {
+    let D;
+    try { D = JSON.parse(raw); } catch (e) { return null; }
+    if (!isObj(D) || typeof D.name !== 'string' || !(+D.weeks > 0) || !Array.isArray(D.days)
+      || !D.days.every(d => isObj(d) && Array.isArray(d.exercises))) return null;
+    const ids = new Set(S.exercises.map(e => e.id));
+    D.days.forEach(d => { d.exercises = d.exercises.filter(sl => isObj(sl) && ids.has(sl.exId) && Array.isArray(sl.plan)); });
+    if (D.editId && !S.mesos.some(m => m.id === D.editId)) delete D.editId;
+    return D;
+  }
+  // The Plan tab's backup reminder: due once there are finished workouts and the last export (or, never exported,
+  // the first workout) is over 14 days ago, unless dismissed since that export. → {days} | null
+  function backupDue(S, now) {
+    const done = allSessions(S);
+    if (!done.length) return null;
+    const last = +S.settings.lastExport > 0 ? +S.settings.lastExport : null;
+    if ((S.settings.backupHintOff ?? null) === (last ?? 0)) return null;
+    const since = last ?? Math.min(...done.map(x => x.s.date));
+    const days = Math.floor((now - since) / 864e5);
+    return days > 14 ? { days } : null;
+  }
+
   /* ---------- body log (3.8) ---------- */
   const isDay = d => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d));
   // "82,5" → "82.5"; a weight is a number in (0, 1000). → string | null
@@ -1154,6 +1180,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, workSets, workIndex, setLabel, shiftIdx, addWarmup, removeWarmup, undeleteSet, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, setValue, bestBefore, prSet, chartMetric, bwFor, countedSets, lastPerf, lastNoteFor, slotHasContent, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, setNote, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, addBody, saveBody, undoBodySave, removeBody, bodyAt, bodyFor, currentBody, bodyStats, bodyAvgLine, dayOf, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, setValue, bestBefore, prSet, chartMetric, bwFor, countedSets, lastPerf, lastNoteFor, slotHasContent, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, setNote, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, DRAFT_KEY, parseDraft, backupDue, addBody, saveBody, undoBodySave, removeBody, bodyAt, bodyFor, currentBody, bodyStats, bodyAvgLine, dayOf, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

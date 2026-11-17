@@ -186,6 +186,8 @@ ol.hint { padding-left: 20px; }
 .bform input[type=date] { flex: 1 1 auto; min-width: 0; }
 .bform input[data-body=w] { width: 88px; flex: none; text-align: right; }
 .bform .btn { flex: none; }
+.backuphint { margin: 0 0 10px; gap: 2px; }
+.backuphint span { flex: 1; }
 .bline { padding-right: 0; }
 .bentry { flex: 1; display: flex; justify-content: space-between; align-items: center; min-height: 44px; gap: 10px; padding: 0 8px 0 0; text-align: left; }
 .stat small { font-size: 12px; font-weight: 600; color: var(--muted); }

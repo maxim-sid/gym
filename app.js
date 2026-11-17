@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof bodyStats !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof parseDraft !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -63,6 +63,7 @@ const exById = id => S.exercises.find(e => e.id === id);
 const byName = (a, b) => a.name.localeCompare(b.name);
 const unit = () => S.settings.unit;
 const fmtDate = ts => new Date(ts).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+const agoText = ts => { const n = Math.floor((Date.now() - ts) / 864e5); return n <= 0 ? 'today' : n === 1 ? 'yesterday' : `${n} days ago`; };
 const weekdayOf = ts => new Date(ts).toLocaleDateString(undefined, { weekday: 'long' });
 const timeOf = ts => new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 const fmtTime = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -345,7 +346,10 @@ function fbHtml(sl, i) {
 
 function viewPlan() {
   if (ui.draft) return viewBuilder();
+  const due = !readOnly && backupDue(S, Date.now());
   let h = `<header class="top"><h1>Mesocycles</h1><div class="meta">A block of 3–6 hard weeks, then a deload week.</div></header>
+    ${due ? `<div class="hint backuphint row nowrap"><span>No backup for ${due.days} days ·</span>
+      <button class="lnk" data-act="exportData">Export</button><button class="icon" data-act="backupHintOff" aria-label="Hide until the next backup">✕</button></div>` : ''}
     <button class="btn primary block" data-act="newMeso">+ New mesocycle</button>`;
   S.mesos.slice().reverse().forEach(m => {
     const done = Object.values(m.log).filter(x => x.done).length;
@@ -514,6 +518,7 @@ function viewSettings() {
       <label class="line tog"><span>Keep screen on during workouts</span><input type="checkbox" data-bind="keepAwake" ${S.settings.keepAwake ? 'checked' : ''}></label>
       <p class="hint">A locked iPhone can't alert you from a web app. Keep the screen on instead.</p></div>
     <div class="card"><div class="sub">Backup</div>
+      <p class="meta">Last backup: ${+S.settings.lastExport > 0 ? agoText(S.settings.lastExport) : 'never'}</p>
       <p class="hint">Your data is stored only on this phone. Export a backup now and then (save it to Files or iCloud Drive).</p>
       <div class="row"><button class="btn grow" data-act="exportData">Export</button>${readOnly ? '' : '<button class="btn grow" data-act="importData">Import</button>'}</div></div>
     <div class="card"><div class="sub">Install on iPhone</div>
@@ -886,7 +891,7 @@ function sheetTplAsk() {
     focus: '[data-act=tplGo]',
   };
 }
-const SHEETS = { addEx: sheetAddEx, tplAsk: sheetTplAsk, stale: sheetStale, week: sheetWeek, logNow: sheetLogNow, workout: sheetWorkout, finish: sheetFinish, card: sheetCard, swap: sheetSwap, swapNote: sheetSwapNote, set: sheetSet };
+const SHEETS = { draftAsk: sheetDraftAsk, addEx: sheetAddEx, tplAsk: sheetTplAsk, stale: sheetStale, week: sheetWeek, logNow: sheetLogNow, workout: sheetWorkout, finish: sheetFinish, card: sheetCard, swap: sheetSwap, swapNote: sheetSwapNote, set: sheetSet };
 
 // Shell shared by every sheet: title, body, Cancel at the bottom; the backdrop also cancels.
 function renderSheet() {
@@ -923,6 +928,7 @@ function render() {
     + VIEWS[ui.tab]();
   renderSheet();
   renderBar();
+  persistDraft();
   if (rest) { restShown = ''; tickRest(); } // the "next:" line follows what was just logged
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === ui.tab));
 }
@@ -1110,6 +1116,38 @@ async function shareFile(name, text, type) {
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+// The builder draft is kept in localStorage[DRAFT_KEY] (outside S) on every change, so closing the app, a reload
+// or an update doesn't lose it; opening the builder later offers it back. Cleared on save, save-as-copy and cancel.
+function persistDraft() {
+  try { if (ui.draft) localStorage.setItem(DRAFT_KEY, JSON.stringify(ui.draft)); } catch (e) { /* not kept */ }
+}
+function clearDraft() {
+  try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* */ }
+}
+function storedDraft() {
+  try { return parseDraft(localStorage.getItem(DRAFT_KEY), S); } catch (e) { return null; }
+}
+// newMeso / editMeso / copyMeso: with a stored draft and none open, ask first (Continue / Discard).
+function askDraft(el) {
+  if (ui.draft || el.dataset.fresh) return false;
+  const D = storedDraft();
+  if (!D) { clearDraft(); return false; }
+  openSheet({ kind: 'draftAsk', act: el.dataset.act, id: el.dataset.id, t: el.dataset.t });
+  return true;
+}
+function sheetDraftAsk() {
+  const D = storedDraft();
+  if (!D) return null;
+  const n = D.days.reduce((k, d) => k + d.exercises.length, 0);
+  return {
+    title: 'Continue your unsaved plan?',
+    body: `<p class="hint">“${esc(D.name)}” · ${D.days.length} day${D.days.length === 1 ? '' : 's'} · ${n} exercise${n === 1 ? '' : 's'}</p>
+      <button class="btn block primary" data-act="draftContinue">Continue</button>
+      <button class="btn block" data-act="draftDiscard">Discard it</button>`,
+    focus: '[data-act=draftContinue]',
+  };
 }
 
 function newDraft() {
@@ -1604,6 +1642,7 @@ const A = {
   },
 
   newMeso: el => {
+    if (askDraft(el)) return;
     ui.tab = 'plan';
     ui.draft = newDraft();
     if (el.dataset.t) { applyTemplate(ui.draft, el.dataset.t); save(); }
@@ -1625,8 +1664,8 @@ const A = {
     toast(`${m.weeks} weeks${m.deload ? ' + deload' : ''}`, { label: 'Undo', act: () => { restoreWeek(m, r.snap); if (m.id === S.activeId) ui.at = null; },
       guard: () => !Object.keys(m.log).some(k => +k.split('-')[0] >= r.snap.weeks) }); // nothing logged in the added week yet
   },
-  editMeso: el => { ui.draft = draftFrom(S.mesos.find(m => m.id === el.dataset.id), el.dataset.id); render(); window.scrollTo(0, 0); },
-  copyMeso: el => { ui.draft = draftFrom(S.mesos.find(m => m.id === el.dataset.id)); render(); window.scrollTo(0, 0); },
+  editMeso: el => { if (askDraft(el)) return; ui.draft = draftFrom(S.mesos.find(m => m.id === el.dataset.id), el.dataset.id); render(); window.scrollTo(0, 0); },
+  copyMeso: el => { if (askDraft(el)) return; ui.draft = draftFrom(S.mesos.find(m => m.id === el.dataset.id)); render(); window.scrollTo(0, 0); },
   activate: el => { S.activeId = el.dataset.id; ui.at = null; save(); render(); },
   delMeso: el => {
     const m = S.mesos.find(x => x.id === el.dataset.id);
@@ -1658,7 +1697,21 @@ const A = {
     sl.plan[0] = Math.max(1, Math.min(10, sl.plan[0] + +el.dataset.v));
     render();
   },
-  cancelDraft: () => { ui.draft = null; render(); },
+  cancelDraft: () => { ui.draft = null; clearDraft(); render(); },
+  draftContinue: () => {
+    const D = storedDraft();
+    ui.sheet = null;
+    if (D) { ui.draft = D; ui.tab = 'plan'; }
+    render();
+    window.scrollTo(0, 0);
+  },
+  // Discard the stored draft, then do what was tapped (New / Edit / Copy).
+  draftDiscard: () => {
+    const { act, id, t } = ui.sheet || {};
+    ui.sheet = null;
+    clearDraft();
+    if (A[act]) A[act]({ dataset: { act, id, t, fresh: '1' } }); else render();
+  },
   // Keeps the edits: same draft through the new-block path, named like Copy does.
   // Keeps the edits as a NEW block without switching to it (the current block stays active).
   saveCopy: () => {
@@ -1667,6 +1720,7 @@ const A = {
     if (!/ \(copy\)$/.test(fields.name)) fields.name += ' (copy)';
     S.mesos.push(newMeso(fields));
     ui.draft = null;
+    clearDraft();
     save();
     render();
     window.scrollTo(0, 0);
@@ -1691,6 +1745,7 @@ const A = {
       S.activeId = m.id;
     }
     ui.draft = null;
+    clearDraft();
     ui.at = null;
     ui.tab = 'today';
     save();
@@ -1737,7 +1792,15 @@ const A = {
 
   unit: el => { S.settings.unit = el.dataset.v; save(); render(); },
   // Read-only: export exactly what is stored, not the in-memory (normalized, maybe edited) copy.
-  exportData: () => shareFile(`liftbook-backup-${new Date().toISOString().slice(0, 10)}.json`, readOnly ? boot.raw : JSON.stringify(S), 'application/json'),
+  exportData: () => {
+    shareFile(`liftbook-backup-${new Date().toISOString().slice(0, 10)}.json`, readOnly ? boot.raw : JSON.stringify(S), 'application/json');
+    if (readOnly) return;
+    S.settings.lastExport = Date.now(); // 3.6: "Last backup", and the Plan tab reminder starts over
+    delete S.settings.backupHintOff;
+    save();
+    render();
+  },
+  backupHintOff: () => { S.settings.backupHintOff = +S.settings.lastExport > 0 ? +S.settings.lastExport : 0; save(); render(); },
   downloadRaw: () => shareFile(`liftbook-unreadable-${new Date().toISOString().slice(0, 10)}.txt`, boot.raw ?? '', 'text/plain'),
   reload: () => location.reload(),
   startFresh: () => {
@@ -1799,7 +1862,8 @@ function onBind(t) {
   else if (b === 'dayName') D.days[+t.dataset.d].name = t.value;
   else if (b === 'weekday') D.days[+t.dataset.d].weekday = t.value === '' ? null : +t.value;
   else if (b === 'reps') D.days[+t.dataset.d].exercises[+t.dataset.i].reps = parseReps(t.value);
-  else if (b === 'addEx' && t.value) {
+  if (b !== 'addEx') persistDraft(); // text fields change without a re-render
+  if (b === 'addEx' && t.value) {
     D.days[+t.dataset.d].exercises.push({ exId: t.value, plan: [2], reps: null, type: 'accessory', notes: '', timed: false });
     render();
   }
