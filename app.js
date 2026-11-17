@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof backupText !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof resolveExercise !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -70,9 +70,10 @@ const fmtTime = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-// Finds by name, or creates it with the flags given (bw/timed from plan.js). Never changes an existing exercise.
-function ensureExercise(name, muscle, { bw = false, timed = false, step } = {}) {
-  let ex = S.exercises.find(e => e.name.toLowerCase() === name.toLowerCase());
+// Finds by name, or by an earlier name from plan.js `was` (renamed in place: same id, history kept), or creates it
+// with the flags given (bw/timed from plan.js). Never changes an existing exercise's flags.
+function ensureExercise(name, muscle, { bw = false, timed = false, step, was } = {}) {
+  let ex = resolveExercise(S, name, was).ex;
   if (!ex) {
     ex = { id: uid(), name, muscle, bw: !!bw, timed: !!timed };
     if (+step > 0) ex.step = +step;

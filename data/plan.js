@@ -12,6 +12,9 @@
  * @property {boolean} [timed]    Log seconds instead of reps
  * @property {boolean} [bw]       Bodyweight exercise: log the added load (blank = bodyweight only)
  * @property {number}  [step]     Weight step for the ↑ chip and deload rounding (e.g. 2 for dumbbells); default 2.5 kg / 5 lb
+ * @property {string[]} [was]     Earlier names of this exercise. When the plan is applied, an exercise found under one
+ *                                of them is renamed to `name` in place (same id, so its history stays), unless an
+ *                                exercise called `name` already exists. Case-insensitive.
  *
  * @typedef {Object} PlanDay
  * @property {string} name
