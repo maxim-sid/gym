@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof lastNoteFor !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof prSet !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -147,6 +147,9 @@ function shiftRestAt(i, j, delta) {
   if (!a || a.w !== ui.at?.w || a.d !== ui.at?.d || a.i !== i) return;
   if (delta > 0 ? a.j >= j : a.j > j) { a.j += delta; restSave(); }
 }
+// "e1RM 118 kg" / "hold 45 s" / "+15 kg" / "12 reps" for a record toast, on the chart's metric.
+const prText = p => (p.metric === 'hold' ? `hold ${p.value} s` : p.metric === 'reps' ? `${p.value} reps`
+  : p.metric === 'load' ? `+${p.value} ${unit()}` : `e1RM ${Math.round(p.value)} ${unit()}`);
 const refusal = s => s?.skipped ? 'This workout was skipped — tap “Do it anyway” first' : 'Tap Edit to change a finished workout';
 
 function curW() {
@@ -264,15 +267,18 @@ function viewToday() {
       ${meta.notes && !from ? `<div class="note">${esc(meta.notes)}</div>` : ''}
       ${hitTop ? `<div class="up"><span>↑ Top of the range on every set last time: ${weighted ? 'add weight' : 'add weight or reps'}</span>${chip}</div>` : ''}
       <div class="setgrid"><span></span><span class="h">${ex?.bw ? '+' : ''}${unit()}</span><span class="h">${isTimed(ex, meta) ? 'Sec' : 'Reps'}</span><span></span>`;
+    // 🏆 on today's record set (3.2): computed now, never stored; not on a finished workout (or in Edit mode).
+    const best = !s.done && ex ? prSet(S, ex, s) : null;
     sl.sets.forEach((st, j) => {
       const { w: pw, r: pr } = suggest(j);
+      const isPr = best?.i === i && best.j === j;
       const dc = (st.done ? 'd' : st.skip ? 'sk' : '') + (st.wu ? ' wu' : ''); // warm-up rows: smaller and muted
       const sk = !st.done && st.skip;
       const roA = ro || sk ? 'readonly tabindex="-1"' : '';
       const lab = setLabel(sl, j), nm = setName(sl, j);
       h += (ro ? `<span class="n ${dc}">${st.done ? '✓' : sk ? '–' : ''}${lab}</span>`
         : sk ? `<button class="n sk" data-act="unskipSet" data-i="${i}" data-j="${j}" aria-label="${nm} skipped. Unskip">↺</button>`
-        : `<button class="n ${dc}" data-act="setNum" data-i="${i}" data-j="${j}" aria-label="${nm} options">${st.done ? '✓' : ''}${lab}</button>`)
+        : `<button class="n ${dc}" data-act="setNum" data-i="${i}" data-j="${j}" aria-label="${nm}${isPr ? ', personal best' : ''} options">${isPr ? '🏆' : st.done ? '✓' : ''}${lab}</button>`)
         + `<input class="${dc}" inputmode="decimal" data-i="${i}" data-j="${j}" data-f="w" value="${esc(st.w)}" placeholder="${ro || sk ? '' : pw}" ${roA} enterkeyhint="next" aria-label="${nm} weight">
         <input class="${dc}" inputmode="numeric" data-i="${i}" data-j="${j}" data-f="r" value="${esc(st.r)}" placeholder="${ro || sk ? '' : pr}" ${roA} enterkeyhint="done" aria-label="${nm} reps">`
         + (ro || sk ? `<span class="chk static ${st.done ? 'on' : st.skip ? 'sk' : ''}" aria-label="${st.done ? 'Done' : st.skip ? 'Skipped' : 'Not done'}">${st.done ? '✓' : st.skip ? 'skipped' : ''}</span>`
@@ -1350,6 +1356,8 @@ const A = {
     tickSet(st, r, Date.now());
     if (!slotOpen(s.slots[i])) openCards(sessKey(m, ui.at.w, d)).delete(i); // its last set: collapse it
     save();
+    const best = !s.done && !st.wu && c.ex ? prSet(S, c.ex, s) : null;
+    if (best?.i === i && best.j === j) toast(`New best: ${c.ex.name} ${prText(best)}`);
     // The timer: never while editing a finished one, never after a warm-up.
     if (!s.done && !st.wu) startRest(m, s, d, { w: ui.at.w, d, i, j });
     if (!s.done) keepAwake(true);

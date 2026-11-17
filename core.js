@@ -737,6 +737,52 @@
     return { metric: 'e1rm', points };
   }
 
+  /* ---------- personal best (3.2) ---------- */
+  // One set's value on the exercise's chart metric (see chartPoints), or null when the set says nothing about it.
+  function setValue(metric, x, bw) {
+    const w = +x.w || 0, r = +x.r;
+    if (!(r > 0)) return null;
+    if (metric === 'hold' || metric === 'reps') return r;
+    if (metric === 'load') return w;
+    if (r > 12) return null;
+    if (metric === 'e1rmBw') return bw ? e1rm(bw + Math.max(0, w), r) : null;
+    return w > 0 ? e1rm(w, r) : null;
+  }
+  const bodyNow = S => (+S.settings?.bodyweight > 0 ? +S.settings.bodyweight : null);
+  // The best value on that metric in finished workouts before session s (not s itself). null = no earlier value,
+  // e.g. the first time: then there's no badge.
+  function bestBefore(S, exId, metric, s) {
+    const before = s?.done ? s.date : Infinity;
+    let best = null;
+    for (const { s: ss } of allSessions(S)) {
+      if (ss === s || !(ss.date < before)) continue;
+      const bw = +ss.bw > 0 ? +ss.bw : bodyNow(S);
+      ss.slots.forEach(sl => {
+        if (sl.exId !== exId) return;
+        doneSets(sl).forEach(x => { const v = setValue(metric, x, bw); if (v != null && (best == null || v > best)) best = v; });
+      });
+    }
+    return best;
+  }
+  // Today's record set for exercise ex in session s: the best working set of the day (all its slots) when it beats
+  // every earlier workout. → {i, j, value, metric} | null
+  function prSet(S, ex, s) {
+    const metric = chartPoints(S, ex).metric;
+    const best = bestBefore(S, ex.id, metric, s);
+    if (best == null) return null;
+    const bw = +s.bw > 0 ? +s.bw : bodyNow(S);
+    let top = null;
+    s.slots.forEach((sl, i) => {
+      if (sl.exId !== ex.id) return;
+      sl.sets.forEach((x, j) => {
+        if (!x.done || x.wu) return;
+        const v = setValue(metric, x, bw);
+        if (v != null && v > best && (!top || v > top.value)) top = { i, j, value: v, metric };
+      });
+    });
+    return top;
+  }
+
   // Sets that count for history, suggestions and stats. (Warm-ups will be excluded here: 3.3.)
   const countedSets = sl => sl.sets.filter(x => x.done && !x.wu && +x.r > 0);
 
@@ -1030,6 +1076,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, workSets, workIndex, setLabel, shiftIdx, addWarmup, removeWarmup, undeleteSet, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, countedSets, lastPerf, lastNoteFor, slotHasContent, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, setNote, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, setValue, bestBefore, prSet, countedSets, lastPerf, lastNoteFor, slotHasContent, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, setNote, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);
