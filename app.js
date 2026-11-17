@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof parseDraft !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof backupText !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -1103,19 +1103,21 @@ const workoutOpen = () => {
 
 /* ---------- actions ---------- */
 
-// Share sheet where available (iOS: save to Files), otherwise a download.
+// Share sheet where available (iOS: save to Files), otherwise a download. → true once shared or downloaded,
+// false when the share sheet was cancelled.
 async function shareFile(name, text, type) {
   const blob = new Blob([text], { type });
   const file = new File([blob], name, { type });
   if (navigator.canShare?.({ files: [file] })) {
-    try { await navigator.share({ files: [file] }); return; }
-    catch (e) { if (e.name === 'AbortError') return; }
+    try { await navigator.share({ files: [file] }); return true; }
+    catch (e) { if (e.name === 'AbortError') return false; }
   }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  return true;
 }
 
 // The builder draft is kept in localStorage[DRAFT_KEY] (outside S) on every change, so closing the app, a reload
@@ -1792,10 +1794,12 @@ const A = {
 
   unit: el => { S.settings.unit = el.dataset.v; save(); render(); },
   // Read-only: export exactly what is stored, not the in-memory (normalized, maybe edited) copy.
-  exportData: () => {
-    shareFile(`liftbook-backup-${new Date().toISOString().slice(0, 10)}.json`, readOnly ? boot.raw : JSON.stringify(S), 'application/json');
-    if (readOnly) return;
-    S.settings.lastExport = Date.now(); // 3.6: "Last backup", and the Plan tab reminder starts over
+  exportData: async () => {
+    const name = `liftbook-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    if (readOnly) { shareFile(name, boot.raw, 'application/json'); return; }
+    const ts = Date.now();
+    if (!(await shareFile(name, backupText(S, ts), 'application/json'))) return; // cancelled: no "last backup"
+    S.settings.lastExport = ts; // 3.6: "Last backup", and the Plan tab reminder starts over
     delete S.settings.backupHintOff;
     save();
     render();

@@ -40,3 +40,14 @@ test('backupDue: after 14 days with workouts; from the first workout if never ex
   const N = S0(); N.mesos[0].log['0-0'] = { date: now - 20 * D, done: true, slots: [] }; N.settings.backupHintOff = 0;
   assert.equal(C.backupDue(N, now), null);                                      // never exported, dismissed
 });
+
+test('backupText: the file carries the new lastExport (and no dismissal); S itself is untouched', () => {
+  const S = S0();
+  S.settings.backupHintOff = 0;
+  const out = JSON.parse(C.backupText(S, 12345));
+  assert.equal(out.settings.lastExport, 12345);
+  assert.equal('backupHintOff' in out.settings, false);
+  assert.equal('lastExport' in S.settings, false);
+  assert.equal(S.settings.backupHintOff, 0);
+  assert.deepEqual(out.mesos, S.mesos);
+});
