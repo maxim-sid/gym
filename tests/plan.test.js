@@ -52,3 +52,27 @@ test('applying the plan to the fixture renames "Squat (barbell or goblet)" to "S
   assert.ok(created.includes('Tuck Front Lever'));                        // new names start fresh
   assert.equal(S.exercises.filter(e => lc(e.name) === 'squat').length, 1);
 });
+
+test('plan.js: every link has a following exercise on the same day; the supersets are as planned', () => {
+  PLAN.days.forEach(d => d.exercises.forEach((e, i) => {
+    if (e.link) assert.ok(i + 1 < d.exercises.length, `${d.name}: ${e.name} links to nothing`);
+  }));
+  const pairs = PLAN.days.flatMap(d => d.exercises.map((e, i) => (e.link ? `${e.name} + ${d.exercises[i + 1].name}` : null)).filter(Boolean));
+  assert.deepEqual(pairs, ['Rising (radial deviation) + Dumbbell Lateral Raise', 'Leg Curl + Calf Raise', 'Reverse Curl + Rope Pushdown',
+    'Face Pull + Cable External Rotation']);
+  const m = { days: PLAN.days.map(d => ({ exercises: d.exercises.map(e => ({ link: e.link })) })) };
+  assert.deepEqual(C.groups(m, 0).filter(g => g.length > 1).map(g => g.map(i => PLAN.days[0].exercises[i].name)),
+    [['Rising (radial deviation)', 'Dumbbell Lateral Raise']]);
+});
+
+test('reused names resolve to the exercises a phone already has from the old plan (history carries over)', () => {
+  const old = vm.runInNewContext(`${require('node:child_process').execSync('git show 18d9563:data/plan.js', { cwd: root, encoding: 'utf8' })};MY_PLAN`);
+  const S = { exercises: [], mesos: [] };
+  old.days.flatMap(d => d.exercises).forEach((e, k) => S.exercises.push({ id: `old${k}`, name: e.name, muscle: e.muscle }));
+  const ids = new Map(S.exercises.map(e => [e.name, e.id]));
+  for (const name of ['Dumbbell Lateral Raise', 'Rope Pushdown', 'Leg Curl', 'Calf Raise']) {
+    const e = all.find(x => x.name === name);
+    assert.ok(e, `${name} is in the plan`);
+    assert.equal(C.resolveExercise(S, e.name, e.was).ex?.id, ids.get(name), name);
+  }
+});
