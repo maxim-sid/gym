@@ -66,9 +66,10 @@ test('plan.js: every link has a following exercise on the same day; the superset
 });
 
 test('reused names resolve to the exercises a phone already has from the old plan (history carries over)', () => {
-  const old = vm.runInNewContext(`${require('node:child_process').execSync('git show 18d9563:data/plan.js', { cwd: root, encoding: 'utf8' })};MY_PLAN`);
-  const S = { exercises: [], mesos: [] };
-  old.days.flatMap(d => d.exercises).forEach((e, k) => S.exercises.push({ id: `old${k}`, name: e.name, muscle: e.muscle }));
+  // Exercises a phone already has from the previous plan (data/plan.js at 18d9563), spelled exactly as there.
+  // Hardcoded so the test needs no git history.
+  const OLD = [['Dumbbell Lateral Raise', 'Shoulders'], ['Rope Pushdown', 'Triceps'], ['Leg Curl', 'Hamstrings'], ['Calf Raise', 'Calves']];
+  const S = { exercises: OLD.map(([name, muscle], k) => ({ id: `old${k}`, name, muscle })), mesos: [] };
   const ids = new Map(S.exercises.map(e => [e.name, e.id]));
   for (const name of ['Dumbbell Lateral Raise', 'Rope Pushdown', 'Leg Curl', 'Calf Raise']) {
     const e = all.find(x => x.name === name);
