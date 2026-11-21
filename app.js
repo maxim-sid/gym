@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof resolveExercise !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof restAfterTick !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -231,8 +231,13 @@ function viewToday() {
 
   // 2.6: only the current card (and cards the user opened) is expanded; the rest are one-line rows.
   // A finished workout starts all collapsed (also in Edit). Feedback still to answer keeps a card open.
-  const cur = s.done ? -1 : currentSlot(s);
+  // Supersets (4.1): the current card's whole group is expanded; grouped cards carry "A1", "A2" and a bracket.
+  const G = groups(m, d, s), labels = groupLabels(G);
+  const cur = s.done ? -1 : currentSlot(s, G);
+  const curGroup = cur >= 0 ? G.find(g => g.includes(cur)) : [];
   const opened = openCards(sessKey(m, w, d));
+  const grpCls = i => (labels[i] ? ` grp${G.find(g => g.includes(i)).at(-1) === i ? ' grp-end' : ''}` : '');
+  const glab = i => (labels[i] ? `<span class="glab">${labels[i]}</span>` : '');
   s.slots.forEach((sl, i) => {
     const { sl: _sl, ex, meta, last, lastNote, hitTop, weighted, step, suggest } = slotCtx(m, w, d, s, i);
     // ↑ chip: explicit "+step" for the untouched sets (no longer baked into the suggestion, F15).
@@ -241,7 +246,7 @@ function viewToday() {
     const from = swappedFrom(m, d, s, i); // planned exercise when this slot does another one today
     if (sl.skip) { // skipped exercise: one line; done sets stay counted
       const nd = sl.sets.filter(x => x.done).length;
-      h += `<div class="card skipcard"><div class="row between"><div class="skline"><span aria-hidden="true">⤼</span> <b>${esc(ex?.name)}</b> — skipped${
+      h += `<div class="card skipcard${grpCls(i)}"><div class="row between"><div class="skline">${glab(i)}<span aria-hidden="true">⤼</span> <b>${esc(ex?.name)}</b> — skipped${
         nd ? ` <span class="muted">· ${nd} set${nd === 1 ? '' : 's'} done</span>` : ''}</div>
         ${ro ? '' : `<div class="row nowrap"><button class="lnk" data-act="unskipSlot" data-i="${i}" aria-label="Undo skip ${esc(ex?.name)}">Undo</button>
           <button class="icon more" data-act="cardMenu" data-i="${i}" aria-label="More for ${esc(ex?.name)}">⋯</button></div>`}</div></div>`;
@@ -250,13 +255,13 @@ function viewToday() {
     const showFb = !ro && !from && sl.sets.some(x => x.done && !x.wu) && sl.sets.every(x => x.done || x.skip || x.wu) && !deload && !isFixed(m);
     const fbPending = showFb && FEEDBACK.some(q => sl.fb[q.k] == null);
     const isCur = i === cur;
-    if (!isCur && !fbPending && !opened.has(i)) { h += cardRow(sl, i, ex, meta, last); return; }
+    if (!isCur && !curGroup.includes(i) && !fbPending && !opened.has(i)) { h += cardRow(sl, i, ex, meta, last, glab(i), grpCls(i)); return; }
     const chip = hitTop && weighted && !ro
       ? `<button class="chip bump ${bumpOn(_sl) ? 'on' : ''}" data-act="bump" data-i="${i}">+${step} ${unit()}</button>` : '';
     // An expanded card that isn't current collapses again from its header.
-    const title = isCur || fbPending ? esc(ex?.name)
-      : `<button class="chead" data-act="cardToggle" data-i="${i}" aria-expanded="true">${esc(ex?.name)}</button>`;
-    h += `<div class="card ${isCur ? 'cur' : ''}" data-slot="${i}"><div class="exhead"><div><h2>${title}</h2>
+    const title = glab(i) + (isCur || fbPending || curGroup.includes(i) ? esc(ex?.name)
+      : `<button class="chead" data-act="cardToggle" data-i="${i}" aria-expanded="true">${esc(ex?.name)}</button>`);
+    h += `<div class="card ${isCur ? 'cur' : ''}${grpCls(i)}" data-slot="${i}"><div class="exhead"><div><h2>${title}</h2>
       ${from && (!s.done || editing(m, w, d)) ? `<div class="swapped">instead of ${esc(exById(from)?.name)}${ro || sl.sets.some(x => x.done) ? ''
         : ` · <button class="lnk" data-act="unswap" data-i="${i}">Undo swap</button>`}</div>` : ''}
       <div class="tags"><span class="tag">${esc(ex?.muscle)}</span>${meta.type === 'main' ? '<span class="tag main">Main</span>' : ''}
@@ -301,7 +306,7 @@ function viewToday() {
 }
 
 // A collapsed card: "✓ Name  summary ›" when its sets are done, else "Name  3×8–10 · last time ›". Tap to open.
-function cardRow(sl, i, ex, meta, last) {
+function cardRow(sl, i, ex, meta, last, lab = '', cls = '') {
   const name = esc(ex?.name);
   const nd = sl.sets.filter(x => x.done && !x.wu).length, nw = workSets(sl).length; // working sets only
   const finished = nd > 0 && !slotOpen(sl);
@@ -318,8 +323,8 @@ function cardRow(sl, i, ex, meta, last) {
     // Last time only when the row still fits on one line at phone width.
     else if (!nd && !allSkipped && lastTxt && (ex?.name || '').length + target.length + lastTxt.length <= 34) sum += ` · ${esc(lastTxt)}`;
   }
-  return `<div class="card crow ${finished ? 'cdone' : ''}" data-slot="${i}"><button class="ctoggle" data-act="cardToggle" data-i="${i}" aria-expanded="false"
-    aria-label="${name}${finished ? ', done' : ''}: ${sum}. Show sets"><span class="cname">${finished ? '<span class="okmark" aria-hidden="true">✓</span>' : ''}${name}</span>
+  return `<div class="card crow ${finished ? 'cdone' : ''}${cls}" data-slot="${i}"><button class="ctoggle" data-act="cardToggle" data-i="${i}" aria-expanded="false"
+    aria-label="${name}${finished ? ', done' : ''}: ${sum}. Show sets"><span class="cname">${lab}${finished ? '<span class="okmark" aria-hidden="true">✓</span>' : ''}${name}</span>
     <span class="csum">${sum}</span><span class="chev" aria-hidden="true">›</span></button></div>`;
 }
 
@@ -399,6 +404,9 @@ function viewBuilder() {
         <button class="chip ${sl.type === 'main' ? 'on' : ''}" data-act="type" data-d="${d}" data-i="${i}">${sl.type === 'main' ? 'Main' : 'Accessory'}</button></div></div>
         <div class="stepper"><button data-act="sets" data-d="${d}" data-i="${i}" data-v="-1" aria-label="Fewer sets">−</button><b>${sl.plan[0]}</b><button data-act="sets" data-d="${d}" data-i="${i}" data-v="1" aria-label="More sets">+</button></div>
         <button class="icon" data-act="rmEx" data-d="${d}" data-i="${i}" aria-label="Remove exercise">✕</button></div>`;
+      const nx = day.exercises[i + 1];
+      if (nx) h += `<div class="blinkrow"><button class="blink ${sl.link ? 'on' : ''}" data-act="bLink" data-d="${d}" data-i="${i}" aria-pressed="${!!sl.link}"
+        aria-label="Superset ${esc(ex?.name)} with ${esc(exById(nx.exId)?.name)}">⛓${sl.link ? ' Superset' : ''}</button></div>`;
     });
     h += `<select class="addex" data-bind="addEx" data-d="${d}"><option value="">+ Add exercise…</option>${opts}</select></div>`;
   });
@@ -650,7 +658,11 @@ function sheetCard() {
     <div class="srow prow"><span>Range (${unitR})</span><div class="row nowrap rrow">
       <input class="rin" data-plan="lo" inputmode="numeric" value="${slot.reps ? slot.reps[0] : ''}" aria-label="Lowest ${unitR}" placeholder="–">
       <span>–</span><input class="rin" data-plan="hi" inputmode="numeric" value="${slot.reps ? slot.reps[1] : ''}" aria-label="Highest ${unitR}" placeholder="–" enterkeyhint="done"></div></div>`;
-  const planNotes = !live || s.done || !slot ? '' : `
+  // ⛓ Superset with the next exercise (shown while there is a next one in the plan).
+  const hasNext = m.days[d].exercises.some((x, k) => k > i && !x.off);
+  const linkRow = !live || s.done || !slot || slot.off || !hasNext ? ''
+    : `<button class="sact" data-act="planLink">⛓ ${slot.link ? 'Unlink from next' : 'Superset with next exercise'}</button>`;
+  const planNotes = !live || s.done || !slot ? '' : `${linkRow}
     <div class="srow prow"><span>Notes</span><input data-plan="notes" value="${esc(slot.notes ?? '')}" placeholder="Plan note for this exercise" enterkeyhint="done" aria-label="Plan note"></div>
     <button class="sact ${logged ? 'off' : ''}" data-act="swapOpen" data-mode="block" aria-disabled="${logged}">⇄ Swap for rest of block${logged ? ' — untick logged sets first' : ''}</button>
     ${slot.off ? '' : logged ? '<p class="hint">Sets are logged today: use “Skip the rest” above; remove it from the plan next time.</p>'
@@ -688,7 +700,7 @@ function renderBar() {
   const s = m && ui.at && m.log[`${ui.at.w}-${ui.at.d}`];
   el.hidden = !s || s.done || s.skipped;
   if (el.hidden) { el.innerHTML = ''; return; }
-  const n = nextSet(s);
+  const n = nextSet(s, groups(m, ui.at.d, s));
   const name = n && exById(s.slots[n.i].exId)?.name;
   el.innerHTML = `<button class="nb-next" data-act="nextGo" ${n ? '' : 'disabled'}>${n
     ? `<span class="muted">Next:</span> <b>${esc(name)}</b> <span class="muted">· set ${setLabel(s.slots[n.i], n.j)}</span>` : '<span class="muted">All sets logged</span>'}</button>
@@ -1016,7 +1028,7 @@ function restoreRest() {
 function restNext() {
   const [mid, wd] = String(rest.key).split(':');
   const m = S.mesos.find(x => x.id === mid), s = m?.log[wd];
-  const n = s && !s.done && nextSet(s);
+  const n = s && !s.done && nextSet(s, groups(m, +wd.split('-')[1], s));
   if (!n) return null;
   const [w, d] = wd.split('-').map(Number);
   const c = slotCtx(m, w, d, s, n.i), pf = c.suggest(n.j);
@@ -1158,7 +1170,7 @@ function newDraft() {
 }
 
 const copySlot = s => ({ exId: s.exId, plan: [s.plan[0]], reps: s.reps ?? null, type: s.type ?? 'accessory', notes: s.notes ?? '', timed: !!s.timed,
-  ...(+s.rest > 0 ? { rest: +s.rest } : {}) });
+  ...(+s.rest > 0 ? { rest: +s.rest } : {}), ...(s.link ? { link: true } : {}) });
 const copyDay = d => ({ name: d.name, weekday: d.weekday ?? null, notes: d.notes ?? '', exercises: d.exercises.filter(s => !s.off).map(copySlot) });
 
 function draftFrom(m, editId) {
@@ -1174,7 +1186,7 @@ function applyTemplate(D, t) {
     D.days = MY_PLAN.days.map(day => ({
       name: day.name, weekday: day.weekday, notes: day.notes ?? '',
       exercises: day.exercises.map(e => ({
-        exId: ensureExercise(e.name, e.muscle, e).id, plan: [e.sets], reps: e.reps, type: e.type, notes: e.notes ?? '', timed: !!e.timed,
+        exId: ensureExercise(e.name, e.muscle, e).id, plan: [e.sets], reps: e.reps, type: e.type, notes: e.notes ?? '', timed: !!e.timed, ...(e.link ? { link: true } : {}),
       })),
     }));
     return;
@@ -1249,6 +1261,19 @@ const A = {
     toast(`${exById(m.days[d].exercises[i].exId)?.name} is back in the plan`, { label: 'Undo', act: () => restorePlanSlot(m, d, i, r.snap), guard: () => activeMeso() === m && !m.days[d].exercises[i]?.off });
   },
   removedToggle: () => { ui.showRemoved = !ui.showRemoved; render(); $('[data-act=removedToggle]')?.focus(); },
+  planLink: () => planChange(slot => {
+    if (slot.link) { delete slot.link; return 'Unlinked'; }
+    slot.link = true;
+    return 'Superset with the next exercise';
+  }, '#sheet [data-act=planLink]'),
+  // Builder (no logs yet): ⛓ between two exercises toggles the superset.
+  bLink: el => {
+    const sl = ui.draft?.days[+el.dataset.d]?.exercises[+el.dataset.i];
+    if (!sl) return;
+    if (sl.link) delete sl.link; else sl.link = true;
+    render();
+    $(`[data-act=bLink][data-d="${el.dataset.d}"][data-i="${el.dataset.i}"]`)?.focus();
+  },
   planSets: el => planChange((slot, m, w, d, i) => {
     const fromW = planFromWeek(m, w, d);
     setPlanSets(m, d, i, fromW, plannedSets(m, d, i, fromW) + +el.dataset.v);
@@ -1360,7 +1385,7 @@ const A = {
   start: () => { const { m, w, d } = { m: activeMeso(), ...ui.at }; ui.sheet = null; session(m, w, d, true); save(); render(); },
   // Bar: open the next set's card and bring it into view.
   nextGo: () => {
-    const m = activeMeso(), s = m.log[`${ui.at.w}-${ui.at.d}`], n = s && nextSet(s);
+    const m = activeMeso(), s = m.log[`${ui.at.w}-${ui.at.d}`], n = s && nextSet(s, groups(m, ui.at.d, s));
     if (!n) return;
     openCards(sessKey(m, ui.at.w, ui.at.d)).add(n.i);
     render();
@@ -1450,17 +1475,22 @@ const A = {
       toast(r.error === 'weight' ? 'Enter the weight (or mark it BW in Exercises)' : 'Enter reps (more than 0)');
       return;
     }
-    const cur0 = currentSlot(s);
+    const cur0 = currentSlot(s, groups(m, d, s));
     tickSet(st, r, Date.now());
     if (!slotOpen(s.slots[i])) openCards(sessKey(m, ui.at.w, d)).delete(i); // its last set: collapse it
     save();
     const best = !s.done && !st.wu && c.ex ? prSet(S, c.ex, s) : null;
     if (best?.i === i && best.j === j) toast(`New best: ${c.ex.name} ${prText(best)}`);
-    // The timer: never while editing a finished one, never after a warm-up.
-    if (!s.done && !st.wu) startRest(m, s, d, { w: ui.at.w, d, i, j });
+    // The timer: never while editing a finished one, never after a warm-up; in a superset only once the round is done
+    // (until then the Next bar shows the partner, and a rest still running from the last round ends).
+    const G = groups(m, d, s);
+    if (!s.done && !st.wu) {
+      if (restAfterTick(s, G.find(g => g.includes(i)) || [i], i, j)) startRest(m, s, d, { w: ui.at.w, d, i, j });
+      else stopRest();
+    }
     if (!s.done) keepAwake(true);
     render();
-    if (!s.done) scrollToCurrent(cur0, currentSlot(s), i);
+    if (!s.done) scrollToCurrent(cur0, currentSlot(s, G), i);
   },
   // Set number: a done set can be unticked (confirm). Undone sets get Skip / Warm-up with the set sheet (2.1).
   // ↑ chip: tap writes last+step and the bottom of the range into untouched sets; tap again clears them.

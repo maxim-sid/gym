@@ -247,3 +247,12 @@ ol.hint { padding-left: 20px; }
 body.sheet-open #toast { bottom: auto; top: calc(12px + env(safe-area-inset-top, 0px)); z-index: 30; }
 #toast span { padding: 6px 10px 6px 0; }
 #toast .tact { min-height: 44px; min-width: 64px; padding: 0 14px; border-radius: 9px; background: var(--acc); color: var(--on-acc); font-weight: 700; }
+
+/* Supersets (4.1): a bracket on the left of a group's cards, which sit closer together; "A1" labels */
+.card.grp { border-left: 3px solid rgba(255,106,61,.45); margin-bottom: 4px; }
+.card.grp.grp-end { margin-bottom: 12px; }
+.card.grp.cur { border-left-color: var(--acc); }
+.glab { display: inline-block; min-width: 24px; margin-right: 6px; font-size: 12px; font-weight: 800; color: var(--acc); letter-spacing: .02em; }
+.blinkrow { display: flex; justify-content: center; margin: -2px 0; }
+.blink { min-height: 44px; min-width: 44px; padding: 0 12px; color: var(--muted); font-size: 14px; }
+.blink.on { color: var(--acc); font-weight: 700; }

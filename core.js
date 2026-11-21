@@ -521,20 +521,76 @@
   /* ---------- current card (2.6) ---------- */
   // A slot still has work while it isn't skipped and has an undone, unskipped set.
   const slotOpen = sl => !sl.skip && sl.sets.some(x => !x.done && !x.skip && !x.wu);
-  // The card to show expanded: the slot of the most recently ticked set (by t) if it still has work, else the
-  // first slot with work. → index, or -1 when nothing is left.
-  function currentSlot(s) {
-    let best = -1, bt = -Infinity;
-    s.slots.forEach((sl, i) => sl.sets.forEach(x => { if (x.done && typeof x.t === 'number' && x.t > bt) { bt = x.t; best = i; } }));
-    if (best >= 0 && slotOpen(s.slots[best])) return best;
-    return s.slots.findIndex(slotOpen);
+  /* ---------- supersets (4.1) ---------- */
+  // Plan slot `link: true` = superset with the next exercise. Retired (off) slots and slots a session doesn't have
+  // are passed over, so a link reaches the next slot that's there. → index arrays in day order, singletons included
+  // (a retired slot that's shown, or a session slot beyond the plan, is its own singleton).
+  function groups(m, d, s) {
+    const plan = m.days[d]?.exercises || [];
+    const n = Math.max(plan.length, s ? s.slots.length : 0);
+    const inChain = i => i < plan.length && !plan[i].off && (!s || !!s.slots[i]);
+    const out = [];
+    let cur = null;
+    for (let i = 0; i < n; i++) {
+      if (s && !s.slots[i]) continue;
+      if (!inChain(i)) { out.push([i]); continue; }
+      if (cur) cur.push(i); else out.push(cur = [i]);
+      if (!plan[i].link) cur = null;
+    }
+    return out.sort((a, b) => a[0] - b[0]);
+  }
+  const groupOf = (m, d, i, s) => groups(m, d, s).find(g => g.includes(i)) || [i];
+  // "A1", "A2", "B1" … for slots in a superset (groups of 2+), by index.
+  function groupLabels(G) {
+    const out = {};
+    let k = 0;
+    G.filter(g => g.length > 1).forEach(g => { const L = String.fromCharCode(65 + (k++ % 26)); g.forEach((i, n) => { out[i] = `${L}${n + 1}`; }); });
+    return out;
+  }
+  const singles = s => s.slots.map((_, i) => [i]);
+  // Within a group, the next set is the earliest round (working-set number) with an undone set, and in that round the
+  // first member that still has it: A1 → B1 → A2 → B2 …; a member with more sets goes on alone; skipped slots and
+  // sets and warm-ups don't take part. → {i, j} | null
+  function groupTarget(s, g) {
+    let best = null;
+    g.forEach((i, o) => {
+      const sl = s.slots[i];
+      if (!sl || sl.skip) return;
+      let r = 0;
+      for (let j = 0; j < sl.sets.length; j++) {
+        const x = sl.sets[j];
+        if (x.wu) continue;
+        if (!x.done && !x.skip) { if (!best || r < best.r || (r === best.r && o < best.o)) best = { i, j, r, o }; break; }
+        r++;
+      }
+    });
+    return best && { i: best.i, j: best.j };
   }
 
-  // The next set to do: {i, j} in the current card, or null when every set is done or skipped.
-  function nextSet(s) {
-    const i = currentSlot(s);
-    if (i < 0) return null;
-    return { i, j: s.slots[i].sets.findIndex(x => !x.done && !x.skip && !x.wu) };
+  // The card to show expanded: in the group of the most recently ticked set (by t), if it still has work, else the
+  // first group with work, the target above. G: groups(m, d, s) (default: every slot alone). → index | -1
+  function nextSet(s, G = singles(s)) {
+    let last = -1, bt = -Infinity;
+    s.slots.forEach((sl, i) => sl.sets.forEach(x => { if (x.done && typeof x.t === 'number' && x.t > bt) { bt = x.t; last = i; } }));
+    const g0 = last >= 0 && G.find(g => g.includes(last));
+    const t0 = g0 && groupTarget(s, g0);
+    if (t0) return t0;
+    for (const g of G) { const t = groupTarget(s, g); if (t) return t; }
+    return null;
+  }
+  const currentSlot = (s, G) => nextSet(s, G)?.i ?? -1;
+  // After ticking set j of slot i: rest only once that round is done in its group (no other member still has its
+  // set of that round to do). A singleton always rests. → boolean
+  function restAfterTick(s, g, i, j) {
+    const sl = s.slots[i];
+    if (!sl?.sets[j] || sl.sets[j].wu) return false;
+    const n = workIndex(sl, j);
+    return !g.some(k => {
+      const o = s.slots[k];
+      if (k === i || !o || o.skip) return false;
+      const x = workSets(o)[n];
+      return !!x && !x.done && !x.skip;
+    });
   }
   // Every set ticked or skipped (and at least one ticked): Finish becomes the main action.
   const allLogged = s => s.slots.some(sl => sl.sets.some(x => x.done && !x.wu)) && s.slots.every(sl => sl.skip || sl.sets.every(x => x.done || x.skip || x.wu));
@@ -622,6 +678,10 @@
   // slot, skipped ones included (empty), so slot i lines up everywhere; finished sessions keep fewer slots.
   // → {i, keys} for removeAppended
   function appendSlot(m, d, exId) {
+    // Never linked automatically: a link left on the last exercise (whatever came after it was retired) goes.
+    const vis = m.days[d].exercises.filter(x => !x.off), lastVis = vis[vis.length - 1];
+    const unlinked = lastVis?.link ? m.days[d].exercises.indexOf(lastVis) : -1;
+    if (unlinked >= 0) delete lastVis.link;
     m.days[d].exercises.push({ exId, plan: [2], reps: null, type: 'accessory', notes: '', timed: false });
     const i = m.days[d].exercises.length - 1, keys = [];
     for (const [k, s] of Object.entries(m.log)) {
@@ -631,7 +691,7 @@
       s.slots.push({ exId, sets: s.skipped ? [] : blankSets(plannedSets(m, d, i, w)), fb: {} });
       keys.push(k);
     }
-    return { i, keys };
+    return { i, keys, unlinked };
   }
   // Undo of appendSlot, while nothing was logged in the new slot anywhere. Checked over every session of day d
   // that has slot i (not just those that existed at the append: a shown-only workout may have been stored since).
@@ -642,6 +702,7 @@
     if (!canRemoveAppended(m, d, r)) return false;
     m.days[d].exercises.pop();
     sessionsOfDay(m, d).forEach(s => { if (s.slots.length === r.i + 1) s.slots.pop(); });
+    if (r.unlinked >= 0 && m.days[d].exercises[r.unlinked]) m.days[d].exercises[r.unlinked].link = true;
     return true;
   }
   // Retire slot i (off:true): plannedSets 0, no progression, dropped by Copy, hidden when empty. Open sessions'
@@ -1202,6 +1263,6 @@
     KEY, BACKUP_KEY, RECOVERY_PREFIX, BEFORE_IMPORT_KEY,
     FEEDBACK, setDelta, doneSets, workSets, workIndex, setLabel, shiftIdx, addWarmup, removeWarmup, undeleteSet, e1rm, blankSets, roundLoad, repsTxt, parseReps,
     totalWeeks, isDeload, isFixed, dayOrder, targetRIR, plannedSets, blankSession, session, hasLogs, canSaveEdit, canWrite, canUndoFinish, advance,
-    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, resolveExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, setValue, bestBefore, prSet, chartMetric, bwFor, countedSets, lastPerf, lastNoteFor, slotHasContent, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, setNote, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, allLogged, lastTick, staleSession, isStale, DRAFT_KEY, parseDraft, backupDue, backupText, addBody, saveBody, undoBodySave, removeBody, bodyAt, bodyFor, currentBody, bodyStats, bodyAvgLine, dayOf, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
+    hasContent, exerciseUse, draftUses, canDeleteExercise, renameExercise, resolveExercise, finishSession, finishReview, applyTyped, finishSnapshot, restoreFinish, allSessions, swapCandidates, swappedFrom, occurrenceOf, snapSlot, restoreSlot, swapToday, swapBlock, restoreBlock, unswap, perfFor, setValue, bestBefore, prSet, chartMetric, bwFor, countedSets, lastPerf, lastNoteFor, slotHasContent, slotHints, prefill, roundTo, STEPS, stepChoices, setStep, stepOf, bumpOn, toggleBump, snapSet, restoreSet, tidySlots, BW_NAMES, acceptSet, fmtSets, chartPoints, tickSet, untickSet, canRemoveLastSet, canAutoUpdate, setNote, skipSet, unskipSet, skipSlot, unskipSlot, deleteSet, loggedSets, skipWorkout, restoreSkip, unskipWorkout, discardWorkout, slotOpen, currentSlot, nextSet, groups, groupOf, groupLabels, restAfterTick, allLogged, lastTick, staleSession, isStale, DRAFT_KEY, parseDraft, backupDue, backupText, addBody, saveBody, undoBodySave, removeBody, bodyAt, bodyFor, currentBody, bodyStats, bodyAvgLine, dayOf, planFromWeek, setPlanSets, parseRange, rebuildOpen, restoreRebuilt, canAddWeek, addWeek, restoreWeek, appendSlot, canRemoveAppended, removeAppended, retireSlot, reinstateSlot, restorePlanSlot, REST_KEY, clampRest, restFor, restState, adjustRest };
   if (typeof module === 'object' && module.exports) module.exports = api; else Object.assign(root, api);
 })(this);

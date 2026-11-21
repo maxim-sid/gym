@@ -12,6 +12,7 @@
  * @property {boolean} [timed]    Log seconds instead of reps
  * @property {boolean} [bw]       Bodyweight exercise: log the added load (blank = bodyweight only)
  * @property {number}  [step]     Weight step for the ↑ chip and deload rounding (e.g. 2 for dumbbells); default 2.5 kg / 5 lb
+ * @property {boolean} [link]    Superset with the next exercise of the day (a chain of links is one group: A1, A2, …)
  * @property {string[]} [was]     Earlier names of the SAME movement (true renames only; a replacement exercise gets no
  *                                `was` and starts its own history). When the plan is applied and no exercise is called
  *                                `name` yet, the first name in `was` (in this order) that matches an exercise renames
