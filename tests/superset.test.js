@@ -87,3 +87,10 @@ test('appendSlot never links: a dangling link on the last exercise goes (Undo re
   C.removeAppended(m, 0, r);
   assert.equal(m.days[0].exercises[0].link, true);
 });
+
+test('dropTrailingLink: the last exercise links to nothing (remove, append, copy)', () => {
+  const exs = [slot('a', { link: true }), slot('b', { link: true })];
+  assert.equal(C.dropTrailingLink(exs), exs);
+  assert.deepEqual(exs.map(e => !!e.link), [true, false]);
+  assert.deepEqual(C.dropTrailingLink([]), []);
+});

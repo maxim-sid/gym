@@ -1,7 +1,7 @@
 'use strict';
 
 // Mixed-version launch (new app.js, old or missing core.js): stop before touching any data.
-if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof restAfterTick !== 'function') {
+if (typeof loadFrom !== 'function' || typeof loadState !== 'function' || typeof importInto !== 'function' || typeof chartPoints !== 'function' || typeof draftUses !== 'function' || typeof canAutoUpdate !== 'function' || typeof stepChoices !== 'function' || typeof dropTrailingLink !== 'function') {
   document.getElementById('main').textContent = 'Liftbook was just updated — close it (swipe it away) and open it again.';
   document.getElementById('tabs').style.display = 'none';
   throw new Error('core.js missing or outdated');
@@ -1171,7 +1171,7 @@ function newDraft() {
 
 const copySlot = s => ({ exId: s.exId, plan: [s.plan[0]], reps: s.reps ?? null, type: s.type ?? 'accessory', notes: s.notes ?? '', timed: !!s.timed,
   ...(+s.rest > 0 ? { rest: +s.rest } : {}), ...(s.link ? { link: true } : {}) });
-const copyDay = d => ({ name: d.name, weekday: d.weekday ?? null, notes: d.notes ?? '', exercises: d.exercises.filter(s => !s.off).map(copySlot) });
+const copyDay = d => ({ name: d.name, weekday: d.weekday ?? null, notes: d.notes ?? '', exercises: dropTrailingLink(d.exercises.filter(s => !s.off).map(copySlot)) });
 
 function draftFrom(m, editId) {
   return {
@@ -1724,7 +1724,7 @@ const A = {
   },
   addDay: () => { ui.draft.days.push({ name: `Day ${ui.draft.days.length + 1}`, weekday: null, notes: '', exercises: [] }); render(); },
   rmDay: el => { ui.draft.days.splice(+el.dataset.d, 1); render(); },
-  rmEx: el => { ui.draft.days[+el.dataset.d].exercises.splice(+el.dataset.i, 1); render(); },
+  rmEx: el => { const exs = ui.draft.days[+el.dataset.d].exercises; exs.splice(+el.dataset.i, 1); dropTrailingLink(exs); render(); },
   sets: el => {
     const sl = ui.draft.days[+el.dataset.d].exercises[+el.dataset.i];
     sl.plan[0] = Math.max(1, Math.min(10, sl.plan[0] + +el.dataset.v));
@@ -1899,6 +1899,7 @@ function onBind(t) {
   else if (b === 'reps') D.days[+t.dataset.d].exercises[+t.dataset.i].reps = parseReps(t.value);
   if (b !== 'addEx') persistDraft(); // text fields change without a re-render
   if (b === 'addEx' && t.value) {
+    dropTrailingLink(D.days[+t.dataset.d].exercises); // never linked automatically to the new one
     D.days[+t.dataset.d].exercises.push({ exId: t.value, plan: [2], reps: null, type: 'accessory', notes: '', timed: false });
     render();
   }
